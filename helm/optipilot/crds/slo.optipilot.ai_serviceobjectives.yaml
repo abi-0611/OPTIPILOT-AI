@@ -1,0 +1,273 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: serviceobjectives.slo.optipilot.ai
+spec:
+  group: slo.optipilot.ai
+  names:
+    kind: ServiceObjective
+    listKind: ServiceObjectiveList
+    plural: serviceobjectives
+    singular: serviceobjective
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetRef.name
+      name: Target
+      type: string
+    - jsonPath: .status.budgetRemaining
+      name: Budget
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="SLOCompliant")].status
+      name: Compliant
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ServiceObjective is the Schema for the serviceobjectives API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ServiceObjectiveSpec defines the desired SLO state for a
+              service
+            properties:
+              costConstraint:
+                description: CostConstraint defines maximum acceptable cost
+                properties:
+                  maxHourlyCostUSD:
+                    description: MaxHourlyCostUSD is the maximum acceptable hourly
+                      cost
+                    type: string
+                required:
+                - maxHourlyCostUSD
+                type: object
+              customMetrics:
+                description: CustomMetrics allows injecting arbitrary Prometheus metrics
+                  into evaluation
+                items:
+                  description: CustomMetric defines an arbitrary Prometheus metric
+                    injected into evaluation
+                  properties:
+                    name:
+                      type: string
+                    query:
+                      type: string
+                    target:
+                      type: number
+                    weight:
+                      type: number
+                  required:
+                  - name
+                  - query
+                  - target
+                  - weight
+                  type: object
+                type: array
+              errorBudget:
+                description: ErrorBudget defines the total error budget and burn rate
+                  alerts
+                properties:
+                  burnRateAlerts:
+                    description: BurnRateAlerts defines multi-window burn rate alert
+                      thresholds
+                    items:
+                      description: BurnRateAlert defines a multi-window burn rate
+                        alert
+                      properties:
+                        factor:
+                          type: number
+                        longWindow:
+                          type: string
+                        severity:
+                          enum:
+                          - info
+                          - warning
+                          - critical
+                          type: string
+                        shortWindow:
+                          type: string
+                      required:
+                      - factor
+                      - longWindow
+                      - severity
+                      - shortWindow
+                      type: object
+                    type: array
+                  total:
+                    description: Total error budget as a percentage (e.g., "0.05%")
+                    type: string
+                required:
+                - total
+                type: object
+              evaluationInterval:
+                default: 30s
+                description: 'EvaluationInterval is how often to evaluate this SLO
+                  (default: 30s)'
+                type: string
+              objectives:
+                description: Objectives defines the SLO targets
+                items:
+                  description: Objective defines a single SLO target
+                  properties:
+                    customQuery:
+                      description: CustomQuery is a PromQL query (required when metric
+                        is "custom")
+                      type: string
+                    metric:
+                      description: Metric is the type of SLO metric
+                      enum:
+                      - latency_p50
+                      - latency_p90
+                      - latency_p95
+                      - latency_p99
+                      - error_rate
+                      - availability
+                      - throughput
+                      - custom
+                      type: string
+                    target:
+                      description: Target is the SLO target value (e.g., "200ms",
+                        "0.1%", "99.95%", "1000rps")
+                      type: string
+                    window:
+                      default: 5m
+                      description: Window is the evaluation window for this objective
+                      type: string
+                  required:
+                  - metric
+                  - target
+                  type: object
+                minItems: 1
+                type: array
+              targetRef:
+                description: TargetRef points to the workload this SLO applies to
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                - name
+                type: object
+              tenantRef:
+                description: TenantRef references the TenantProfile this service belongs
+                  to
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - objectives
+            - targetRef
+            type: object
+          status:
+            description: ServiceObjectiveStatus defines the observed state of ServiceObjective
+            properties:
+              budgetRemaining:
+                description: BudgetRemaining is the remaining error budget as a percentage
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              currentBurn:
+                additionalProperties:
+                  type: string
+                description: CurrentBurn maps objective metric names to current burn
+                  rates
+                type: object
+              lastEvaluation:
+                description: LastEvaluation is the timestamp of the last evaluation
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,37 @@
+domain: optipilot.ai
+layout:
+- go.kubebuilder.io/v4
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: optipilot
+repo: github.com/optipilot-ai/optipilot
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: optipilot.ai
+  group: slo
+  kind: ServiceObjective
+  path: github.com/optipilot-ai/optipilot/api/slo/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: optipilot.ai
+  group: policy
+  kind: OptimizationPolicy
+  path: github.com/optipilot-ai/optipilot/api/policy/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: false
+  controller: true
+  domain: optipilot.ai
+  group: tenant
+  kind: TenantProfile
+  path: github.com/optipilot-ai/optipilot/api/tenant/v1alpha1
+  version: v1alpha1
+version: "3"

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cluster-agent
+description: OptiPilot AI cluster-agent — controller, actuators, and dashboard
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

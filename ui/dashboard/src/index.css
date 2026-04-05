@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg-base: #080d12;
+  --color-bg-surface: #0d1520;
+  --color-bg-elevated: #131e2e;
+  --color-bg-overlay: #1a2840;
+  --color-border-subtle: rgba(34,211,238,0.08);
+  --color-border-default: rgba(34,211,238,0.16);
+  --color-border-strong: rgba(34,211,238,0.32);
+
+  --color-cyan-glow: #22d3ee;
+  --color-cyan-dim: rgba(34,211,238,0.5);
+  --color-amber: #f59e0b;
+  --color-amber-dim: rgba(245,158,11,0.5);
+  --color-emerald: #10b981;
+  --color-emerald-dim: rgba(16,185,129,0.5);
+  --color-rose: #f43f5e;
+  --color-rose-dim: rgba(244,63,94,0.5);
+  --color-sky: #38bdf8;
+
+  --color-text-primary: #e8f4fd;
+  --color-text-secondary: #8eafc4;
+  --color-text-muted: #4a6880;
+
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --shadow-glow-cyan: 0 0 20px rgba(34,211,238,0.15);
+  --shadow-glow-amber: 0 0 20px rgba(245,158,11,0.2);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-surface); }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-cyan-dim); }

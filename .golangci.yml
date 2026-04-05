@@ -1,0 +1,31 @@
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - unconvert
+    - copyloopvar
+  disable:
+    - depguard
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+  goimports:
+    local-prefixes: github.com/optipilot-ai/optipilot
+
+issues:
+  exclude-rules:
+    - path: zz_generated
+      linters:
+        - all
+    - path: _test\.go
+      linters:
+        - errcheck

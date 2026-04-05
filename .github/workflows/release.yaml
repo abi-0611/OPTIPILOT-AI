@@ -1,0 +1,332 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write        # create GitHub release
+  packages: write        # push to ghcr.io
+  id-token: write        # OIDC token for provenance attestation
+
+env:
+  REGISTRY: ghcr.io/optipilot-ai/optipilot
+  GO_VERSION: '1.25'
+
+jobs:
+  # ── 1. Test ────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # required for git describe used in VERSION
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Generate code
+        run: make generate
+
+      - name: Generate CRD manifests
+        run: make manifests
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.0
+
+      - name: Unit + integration tests
+        run: make test
+
+      - name: Helm structural tests
+        run: go test ./test/helm/... -v
+
+      - name: Build manager binary (smoke)
+        run: make build
+
+      - name: Build hub binary (smoke)
+        run: make build-hub
+
+  # ── 2. Determine version ───────────────────────────────────────────────────
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive version
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"          # e.g. v0.3.1
+          VERSION="${TAG#v}"                # strip leading 'v'
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building version: ${VERSION} (tag: ${TAG})"
+
+  # ── 3. Build & push images ─────────────────────────────────────────────────
+  images:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: manager
+            dockerfile: Dockerfile
+            context: .
+            image_suffix: manager
+          - target: hub
+            dockerfile: Dockerfile.hub
+            context: .
+            image_suffix: hub
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image_suffix }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.target }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+  # ── 4. Build & push ML service image ──────────────────────────────────────
+  image-ml:
+    name: Build & Push ML Image
+    runs-on: ubuntu-latest
+    needs: version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract ML image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/ml
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push ML image
+        uses: docker/build-push-action@v6
+        with:
+          context: ml/
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=ml
+          cache-to: type=gha,mode=max,scope=ml
+
+  # ── 5. Package & push Helm chart ──────────────────────────────────────────
+  helm-release:
+    name: Helm Chart Release
+    runs-on: ubuntu-latest
+    needs: [version, images, image-ml]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.17.0'
+
+      - name: Log in to GHCR (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login ghcr.io \
+              --username "${{ github.actor }}" \
+              --password-stdin
+
+      - name: Stamp chart version
+        run: |
+          VERSION=${{ needs.version.outputs.version }}
+          sed -i "s/^version:.*/version: ${VERSION}/" helm/optipilot/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" helm/optipilot/Chart.yaml
+          # Also stamp sub-charts
+          for subchart in helm/optipilot/charts/*/Chart.yaml; do
+            sed -i "s/^version:.*/version: ${VERSION}/" "$subchart"
+            sed -i "s/^appVersion:.*/appVersion: \"${VERSION}\"/" "$subchart"
+          done
+
+      - name: Stamp image tags in values.yaml
+        run: |
+          VERSION=${{ needs.version.outputs.version }}
+          sed -i "s|tag: \"\"|tag: \"${VERSION}\"|g" helm/optipilot/values.yaml
+
+      - name: Package Helm chart
+        run: |
+          helm dependency update helm/optipilot || true
+          helm package helm/optipilot \
+            --version ${{ needs.version.outputs.version }} \
+            --app-version ${{ needs.version.outputs.version }} \
+            --destination /tmp/chart-output
+
+      - name: Lint packaged chart
+        run: |
+          helm lint /tmp/chart-output/optipilot-${{ needs.version.outputs.version }}.tgz
+
+      - name: Push chart to OCI registry
+        run: |
+          helm push \
+            /tmp/chart-output/optipilot-${{ needs.version.outputs.version }}.tgz \
+            oci://ghcr.io/optipilot-ai/optipilot/charts
+
+  # ── 6. Create GitHub Release ───────────────────────────────────────────────
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [version, images, image-ml, helm-release]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          TAG=${{ needs.version.outputs.tag }}
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${TAG}"
+          else
+            RANGE="${TAG}"
+          fi
+
+          # Group commits by conventional commit prefix
+          FEATURES=$(git log "$RANGE" --pretty="format:- %s" --no-merges | grep -E "^- feat" || true)
+          FIXES=$(git log "$RANGE" --pretty="format:- %s" --no-merges | grep -E "^- fix" || true)
+          BREAKING=$(git log "$RANGE" --pretty="format:- %s" --no-merges | grep -E "BREAKING" || true)
+          OTHER=$(git log "$RANGE" --pretty="format:- %s" --no-merges | grep -vE "^- (feat|fix|chore|docs|test|ci)" || true)
+
+          {
+            echo "NOTES<<EOF"
+            echo "## OptiPilot AI ${TAG}"
+            echo ""
+            if [ -n "$BREAKING" ]; then
+              echo "### ⚠️ Breaking Changes"
+              echo "$BREAKING"
+              echo ""
+            fi
+            if [ -n "$FEATURES" ]; then
+              echo "### ✨ Features"
+              echo "$FEATURES"
+              echo ""
+            fi
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+            if [ -n "$OTHER" ]; then
+              echo "### 🔧 Other Changes"
+              echo "$OTHER"
+              echo ""
+            fi
+            echo "### 📦 Container Images"
+            echo ""
+            echo '```'
+            echo "ghcr.io/optipilot-ai/optipilot/manager:${{ needs.version.outputs.version }}"
+            echo "ghcr.io/optipilot-ai/optipilot/hub:${{ needs.version.outputs.version }}"
+            echo "ghcr.io/optipilot-ai/optipilot/ml:${{ needs.version.outputs.version }}"
+            echo '```'
+            echo ""
+            echo "### 🎁 Helm Chart"
+            echo ""
+            echo '```bash'
+            echo "helm install optipilot oci://ghcr.io/optipilot-ai/optipilot/charts/optipilot \\"
+            echo "  --version ${{ needs.version.outputs.version }} \\"
+            echo "  --namespace optipilot-system --create-namespace"
+            echo '```'
+            echo ""
+            echo "### 📖 Documentation"
+            echo ""
+            echo "See [docs/getting-started.md](https://github.com/optipilot-ai/optipilot/blob/${{ needs.version.outputs.tag }}/docs/getting-started.md) for installation and quickstart."
+            echo ""
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: OptiPilot AI ${{ needs.version.outputs.tag }}
+          body: ${{ steps.changelog.outputs.NOTES }}
+          draft: false
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

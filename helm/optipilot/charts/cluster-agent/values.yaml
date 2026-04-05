@@ -1,0 +1,59 @@
+image:
+  repository: ghcr.io/optipilot-ai/optipilot/manager
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+args:
+  metricsBindAddress: ":8080"
+  healthProbeBindAddress: ":8081"
+  leaderElect: true
+  optimizerInterval: "60s"
+  journalPath: "/data/decisions.db"
+  apiAddr: ":8090"
+  hubEndpoint: ""
+  clusterName: ""
+  clusterProvider: ""
+  clusterRegion: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+service:
+  type: ClusterIP
+  metricsPort: 8080
+  dashboardPort: 8090
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /data
+
+config:
+  LOG_LEVEL: info
+  OPTIMIZER_INTERVAL: "60s"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"

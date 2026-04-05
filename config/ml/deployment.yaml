@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: optipilot-ml
+  namespace: optipilot-system
+  labels:
+    app: optipilot-ml
+    app.kubernetes.io/name: optipilot-ml
+    app.kubernetes.io/part-of: optipilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: optipilot-ml
+  template:
+    metadata:
+      labels:
+        app: optipilot-ml
+        app.kubernetes.io/name: optipilot-ml
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: optipilot-ml
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: optipilot-ml
+          image: optipilot-ml:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SPOT_MODEL_PATH
+              value: "/models/spot_model"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-storage
+              mountPath: /models
+      volumes:
+        - name: model-storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: optipilot-ml
+  namespace: optipilot-system
+  labels:
+    app.kubernetes.io/name: optipilot-ml
+    app.kubernetes.io/part-of: optipilot

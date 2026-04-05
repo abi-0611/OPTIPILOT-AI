@@ -1,0 +1,55 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cluster-agent.fullname" . }}
+  labels:
+    {{- include "cluster-agent.labels" . | nindent 4 }}
+rules:
+  # Core workload watching and patching
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "namespaces", "events", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  # OptiPilot CRDs
+  - apiGroups: ["slo.optipilot.ai"]
+    resources: ["serviceobjectives", "serviceobjectives/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy.optipilot.ai"]
+    resources: ["optimizationpolicies", "optimizationpolicies/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["tenant.optipilot.ai"]
+    resources: ["tenantprofiles", "tenantprofiles/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["tuning.optipilot.ai"]
+    resources: ["applicationtunings", "applicationtunings/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Karpenter NodePool management
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodepools"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cluster-agent.fullname" . }}
+  labels:
+    {{- include "cluster-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cluster-agent.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cluster-agent.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

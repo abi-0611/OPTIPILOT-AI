@@ -1,0 +1,37 @@
+apiVersion: v2
+name: optipilot
+description: >
+  OptiPilot AI — SLO-native Kubernetes optimization platform.
+  Multi-objective solver with ML-powered forecasting, tenant-aware
+  fairness, full explainability, and multi-cluster support.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - slo
+  - optimization
+  - autoscaling
+  - mlops
+home: https://github.com/optipilot-ai/optipilot
+sources:
+  - https://github.com/optipilot-ai/optipilot
+maintainers:
+  - name: OptiPilot AI Authors
+    email: maintainers@optipilot.ai
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/license: Apache-2.0
+dependencies:
+  - name: cluster-agent
+    version: "0.1.0"
+    repository: "file://charts/cluster-agent"
+    condition: clusterAgent.enabled
+  - name: ml-service
+    version: "0.1.0"
+    repository: "file://charts/ml-service"
+    condition: mlService.enabled
+  - name: hub
+    version: "0.1.0"
+    repository: "file://charts/hub"
+    condition: hub.enabled

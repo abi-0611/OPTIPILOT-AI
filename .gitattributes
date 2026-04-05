@@ -1,0 +1,9 @@
+# Normalise line endings to LF on checkout everywhere
+* text=auto eol=lf
+
+# Shell scripts must always be LF
+*.sh text eol=lf
+
+# Windows executables are binary
+*.exe binary
+*.dll binary

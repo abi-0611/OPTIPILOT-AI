@@ -1,0 +1,201 @@
+# OptiPilot AI — Helm Values
+# Full reference: https://github.com/optipilot-ai/optipilot/docs/configuration.md
+
+# ---------------------------------------------------------------------------
+# Global image settings (overridden per sub-chart if needed)
+# ---------------------------------------------------------------------------
+global:
+  imageRegistry: ghcr.io
+  imageRepository: optipilot-ai/optipilot
+  imageTag: "0.1.0"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+  # Namespace where OptiPilot system components are installed
+  namespace: optipilot-system
+
+  # Prometheus endpoint for SLO evaluation
+  prometheusURL: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+
+  # Decision journal storage backend: "sqlite" or "postgres"
+  journalBackend: sqlite
+
+  # Postgres DSN (only used when journalBackend=postgres)
+  postgresDSN: ""
+
+# ---------------------------------------------------------------------------
+# Cluster Agent (controller + actuators) — always enabled
+# ---------------------------------------------------------------------------
+clusterAgent:
+  enabled: true
+
+  image:
+    repository: ghcr.io/optipilot-ai/optipilot/manager
+    tag: ""        # Defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # Flags forwarded to the controller manager
+  args:
+    metricsBindAddress: ":8080"
+    healthProbeBindAddress: ":8081"
+    leaderElect: true
+    optimizerInterval: "60s"
+    journalPath: "/data/decisions.db"
+    apiAddr: ":8090"
+    hubEndpoint: ""      # Set to enable spoke agent (e.g. hub.optipilot-system:50051)
+    clusterName: ""      # Required when hubEndpoint is set
+    clusterProvider: ""
+    clusterRegion: ""
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+  rbac:
+    create: true
+
+  service:
+    type: ClusterIP
+    metricsPort: 8080
+    dashboardPort: 8090
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  # Persistent volume for SQLite decision journal
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 1Gi
+    mountPath: /data
+
+  # ConfigMap data for controller configuration
+  config:
+    LOG_LEVEL: info
+    OPTIMIZER_INTERVAL: "60s"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+# ---------------------------------------------------------------------------
+# ML Service (Python demand forecaster + spot predictor) — opt-in
+# ---------------------------------------------------------------------------
+mlService:
+  enabled: false
+
+  image:
+    repository: ghcr.io/optipilot-ai/optipilot/ml
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # Persistent volume for trained model artifacts
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 2Gi
+    mountPath: /models
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+# ---------------------------------------------------------------------------
+# Hub (global orchestrator for multi-cluster) — opt-in, disabled by default
+# ---------------------------------------------------------------------------
+hub:
+  enabled: false
+
+  image:
+    repository: ghcr.io/optipilot-ai/optipilot/hub
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  args:
+    grpcAddr: ":50051"
+    optimizationPeriod: "60s"
+    metricsBindAddress: ":9080"
+    healthProbeBindAddress: ":9081"
+    leaderElect: true
+
+  service:
+    type: ClusterIP
+    grpcPort: 50051
+    metricsPort: 9080
+
+  # mTLS via cert-manager (requires cert-manager to be installed)
+  mtls:
+    enabled: false
+    issuerName: "optipilot-selfsigned"
+    issuerKind: "ClusterIssuer"
+    duration: "8760h"    # 1 year
+    renewBefore: "720h"  # 30 days
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# Ingress for the OptiPilot dashboard
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: optipilot.example.com
+  path: /
+  pathType: Prefix
+  tls: []
+
+# ---------------------------------------------------------------------------
+# ServiceMonitor for kube-prometheus-stack
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}

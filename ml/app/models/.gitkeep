@@ -1,0 +1,2 @@
+# Model artifacts directory — populated at runtime by SpotPredictor.train()
+# and optionally at build time by a pre-training script.

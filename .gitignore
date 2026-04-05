@@ -1,0 +1,51 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+manager
+hub
+
+# Test output
+cover.out
+*.test
+
+# Go build cache
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+
+# Node / UI build
+ui/dashboard/node_modules/
+ui/dashboard/dist/
+ui/dashboard/.vite/
+
+# Python
+ml/__pycache__/
+ml/**/__pycache__/
+ml/*.egg-info/
+ml/.venv/
+ml/venv/
+ml/.pytest_cache/
+ml/**/*.pyc
+ml/models/*.json
+ml/models/*.pkl
+
+# Helm dependency cache
+helm/optipilot/charts/*.tgz
+
+# Local kind kubeconfig
+/tmp/
+
+# Port-forward logs
+/tmp/optipilot-*.log
+
+# Compiled controller-gen output (keep generated *.go, ignore temp)
+testbin/

@@ -1,0 +1,52 @@
+Thank you for installing OptiPilot AI {{ .Chart.AppVersion }}!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  OptiPilot AI is now deploying. Components enabled:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if .Values.clusterAgent.enabled }}
+  ✔ Cluster Agent  (controller + actuators + dashboard)
+{{- end }}
+{{- if .Values.mlService.enabled }}
+  ✔ ML Service     (demand forecasting + spot risk)
+{{- end }}
+{{- if .Values.hub.enabled }}
+  ✔ Hub            (multi-cluster orchestrator)
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Getting started
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Create your first SLO:
+
+   kubectl apply -f - <<EOF
+   apiVersion: slo.optipilot.ai/v1alpha1
+   kind: ServiceObjective
+   metadata:
+     name: my-app-slo
+     namespace: default
+   spec:
+     targetRef:
+       name: my-app
+       kind: Deployment
+     objectives:
+       - metricName: error_rate
+         target: "0.1%"
+         window: 1h
+   EOF
+
+2. Access the dashboard:
+
+   kubectl port-forward -n {{ include "optipilot.namespace" . }} \
+     svc/{{ .Release.Name }}-cluster-agent 8090:8090
+
+   Then open: http://localhost:8090
+
+3. View decision journal:
+
+   curl http://localhost:8090/api/v1/decisions | jq .
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Documentation: https://github.com/optipilot-ai/optipilot/docs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

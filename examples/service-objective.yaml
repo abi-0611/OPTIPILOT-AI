@@ -1,0 +1,39 @@
+apiVersion: slo.optipilot.ai/v1alpha1
+kind: ServiceObjective
+metadata:
+  name: checkout-slo
+  namespace: ecommerce
+  labels:
+    tier: critical
+    team: checkout
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkout-service
+  objectives:
+    - metric: latency_p99
+      target: "200ms"
+      window: "5m"
+    - metric: error_rate
+      target: "0.1%"
+      window: "5m"
+    - metric: availability
+      target: "99.95%"
+      window: "30d"
+  errorBudget:
+    total: "0.05%"
+    burnRateAlerts:
+      - severity: warning
+        shortWindow: "5m"
+        longWindow: "1h"
+        factor: 14.4
+      - severity: critical
+        shortWindow: "2m"
+        longWindow: "15m"
+        factor: 14.4
+  costConstraint:
+    maxHourlyCostUSD: "50.00"
+  tenantRef:
+    name: team-checkout
+  evaluationInterval: "30s"

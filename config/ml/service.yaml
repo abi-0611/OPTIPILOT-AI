@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: optipilot-ml
+  namespace: optipilot-system
+  labels:
+    app: optipilot-ml
+    app.kubernetes.io/name: optipilot-ml
+    app.kubernetes.io/part-of: optipilot
+spec:
+  type: ClusterIP
+  selector:
+    app: optipilot-ml
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

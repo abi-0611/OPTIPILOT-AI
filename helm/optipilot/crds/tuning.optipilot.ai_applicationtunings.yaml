@@ -1,0 +1,198 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: applicationtunings.tuning.optipilot.ai
+spec:
+  group: tuning.optipilot.ai
+  names:
+    kind: ApplicationTuning
+    listKind: ApplicationTuningList
+    plural: applicationtunings
+    singular: applicationtuning
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetRef.name
+      name: Target
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ApplicationTuning is the Schema for the applicationtunings API
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ApplicationTuningSpec defines the desired tuning configuration
+            properties:
+              targetRef:
+                description: TargetRef identifies the workload to tune
+                properties:
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              parameters:
+                description: Parameters lists the tunable parameters
+                items:
+                  properties:
+                    name:
+                      type: string
+                    type:
+                      enum: [integer, float, string]
+                      type: string
+                    source:
+                      enum: [configmap, env]
+                      type: string
+                    configMapRef:
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                        key:
+                          type: string
+                      required: [name, key]
+                      type: object
+                    envVarName:
+                      type: string
+                    min:
+                      type: string
+                    max:
+                      type: string
+                    step:
+                      type: string
+                    allowedValues:
+                      items:
+                        type: string
+                      type: array
+                    default:
+                      type: string
+                  required: [name, type, source]
+                  type: object
+                minItems: 1
+                type: array
+              optimizationTarget:
+                description: OptimizationTarget describes the metric to optimize
+                properties:
+                  metricName:
+                    type: string
+                  promQLExpr:
+                    type: string
+                  objective:
+                    default: minimize
+                    enum: [minimize, maximize]
+                    type: string
+                required: [metricName, objective]
+                type: object
+              safetyPolicy:
+                description: SafetyPolicy controls how aggressively parameters change
+                properties:
+                  maxChangePercent:
+                    default: 50
+                    format: int32
+                    type: integer
+                  cooldownMinutes:
+                    default: 5
+                    format: int32
+                    type: integer
+                  rollbackOnSLOViolation:
+                    default: true
+                    type: boolean
+                  sloThresholdPercent:
+                    default: 95
+                    format: int32
+                    type: integer
+                type: object
+              intervalMinutes:
+                default: 15
+                description: IntervalMinutes between optimization cycles
+                format: int32
+                type: integer
+              maxObservations:
+                default: 100
+                description: MaxObservations to retain in status
+                format: int32
+                type: integer
+              paused:
+                default: false
+                description: Paused halts optimization without deleting the resource
+                type: boolean
+            required: [targetRef, parameters, optimizationTarget]
+            type: object
+          status:
+            description: ApplicationTuningStatus records optimizer state
+            properties:
+              phase:
+                type: string
+              currentValues:
+                additionalProperties:
+                  type: string
+                type: object
+              bestValues:
+                additionalProperties:
+                  type: string
+                type: object
+              activeParameter:
+                type: string
+              observations:
+                items:
+                  properties:
+                    parameterName:
+                      type: string
+                    value:
+                      type: string
+                    sloValue:
+                      type: number
+                    timestamp:
+                      format: date-time
+                      type: string
+                  required: [parameterName, value, sloValue, timestamp]
+                  type: object
+                type: array
+              cooldownUntil:
+                format: date-time
+                type: string
+              conditions:
+                items:
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                  required: [type, status]
+                  type: object
+                type: array
+            type: object
+        required: [spec]
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

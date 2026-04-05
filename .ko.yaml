@@ -1,0 +1,33 @@
+# ko configuration — https://ko.build
+# Builds Go binaries into distroless images using ko.
+
+defaultBaseImage: gcr.io/distroless/static:nonroot
+
+builds:
+  - id: manager
+    main: ./cmd/manager
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s
+      - -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.buildDate={{.Date}}
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - id: hub
+    main: ./cmd/hub
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s
+      - -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.buildDate={{.Date}}
+    platforms:
+      - linux/amd64
+      - linux/arm64
