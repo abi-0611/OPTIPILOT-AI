@@ -1,0 +1,17 @@
+global:
+  prometheusURL: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+
+clusterAgent:
+  enabled: true
+
+mlService:
+  enabled: false
+
+hub:
+  enabled: false
+
+cluster-agent:
+  image:
+    repository: optipilot-manager
+    tag: local
+    pullPolicy: Never
