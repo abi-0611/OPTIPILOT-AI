@@ -2,17 +2,28 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	policyv1alpha1 "github.com/optipilot-ai/optipilot/api/policy/v1alpha1"
 	slov1alpha1 "github.com/optipilot-ai/optipilot/api/slo/v1alpha1"
 	"github.com/optipilot-ai/optipilot/internal/actuator"
 	"github.com/optipilot-ai/optipilot/internal/cel"
 	"github.com/optipilot-ai/optipilot/internal/engine"
 	"github.com/optipilot-ai/optipilot/internal/explainability"
+	prommetrics "github.com/optipilot-ai/optipilot/internal/metrics"
 )
 
 // OptimizerController runs a periodic optimization loop.
@@ -27,6 +38,7 @@ type OptimizerController struct {
 	ActuatorReg *actuator.Registry         // optional; nil disables actuation
 	SafetyGuard *actuator.SafetyGuard      // optional; nil skips safety checks
 	CanaryCtrl  *actuator.CanaryController // optional; nil disables canary
+	PromClient  prommetrics.PrometheusClient
 }
 
 // Start implements manager.Runnable. It runs the optimization loop until ctx is cancelled.
@@ -67,6 +79,10 @@ func (o *OptimizerController) runOptimizationCycle(ctx context.Context) {
 // optimizeService runs the solver for a single ServiceObjective.
 func (o *OptimizerController) optimizeService(ctx context.Context, so *slov1alpha1.ServiceObjective) {
 	logger := ctrl.Log.WithName("optimizer").WithValues("namespace", so.Namespace, "service", so.Spec.TargetRef.Name)
+	if !serviceObjectiveReadyForOptimization(so) {
+		logger.Info("skipping optimization until ServiceObjective has a concrete SLO evaluation")
+		return
+	}
 
 	// 1. Build solver input from current state.
 	input := o.buildSolverInput(ctx, so)
@@ -121,7 +137,8 @@ func (o *OptimizerController) optimizeService(ctx context.Context, so *slov1alph
 
 		// Actuate if registry is wired.
 		if o.ActuatorReg != nil {
-			o.actuate(ctx, so, action)
+			actuationOpts := buildActuationOptions(action, policies)
+			o.actuate(ctx, so, action, actuationOpts, int32(input.Current.Replicas))
 		}
 	}
 }
@@ -130,16 +147,14 @@ func (o *OptimizerController) optimizeService(ctx context.Context, so *slov1alph
 //  1. Safety checks (emergency stop, cooldown, circuit breaker)
 //  2. Actuation via CanaryController (if wired) or Registry directly
 //  3. Outcome recording for circuit breaker
-func (o *OptimizerController) actuate(ctx context.Context, so *slov1alpha1.ServiceObjective, action engine.ScalingAction) {
+func (o *OptimizerController) actuate(ctx context.Context, so *slov1alpha1.ServiceObjective, action engine.ScalingAction, opts actuator.ActuationOptions, currentReplicas int32) {
 	logger := ctrl.Log.WithName("optimizer").WithValues("namespace", so.Namespace, "service", so.Spec.TargetRef.Name)
 
 	ref := actuator.ServiceRef{
-		Namespace: so.Namespace,
-		Name:      so.Spec.TargetRef.Name,
-	}
-
-	opts := actuator.ActuationOptions{
-		DryRun: action.DryRun,
+		Namespace:  so.Namespace,
+		Name:       so.Spec.TargetRef.Name,
+		APIVersion: so.Spec.TargetRef.APIVersion,
+		Kind:       so.Spec.TargetRef.Kind,
 	}
 
 	// 1. Safety checks.
@@ -156,7 +171,7 @@ func (o *OptimizerController) actuate(ctx context.Context, so *slov1alpha1.Servi
 	var err error
 
 	if o.CanaryCtrl != nil {
-		result, err = o.CanaryCtrl.Apply(ctx, ref, action, opts, action.TargetReplica)
+		result, err = o.CanaryCtrl.Apply(ctx, ref, action, opts, currentReplicas)
 	} else {
 		result, err = o.ActuatorReg.Apply(ctx, ref, action, opts)
 	}
@@ -192,22 +207,191 @@ func (o *OptimizerController) buildSolverInput(ctx context.Context, so *slov1alp
 		Service:   so.Spec.TargetRef.Name,
 		Trigger:   "periodic",
 		Current: cel.CurrentState{
-			Replicas:   2, // default; will be populated from workload status in Phase 5
-			CPURequest: 0.5,
+			Replicas:      1,
+			CPURequest:    0.1,
+			MemoryRequest: 0.25,
 		},
-		SLO: cel.SLOStatus{
-			Compliant: true, // default; populated from SO status conditions
-		},
+		SLO:           buildSLOStatus(so),
 		Region:        "us-east-1",
 		InstanceTypes: []string{"m5.large"},
 	}
 
-	// Populate SLO compliance from status conditions.
-	for _, cond := range so.Status.Conditions {
-		if cond.Type == "SLOCompliant" {
-			input.SLO.Compliant = cond.Status == "True"
+	currentState, err := o.readCurrentState(ctx, so)
+	if err != nil {
+		ctrl.Log.WithName("optimizer").WithValues("namespace", so.Namespace, "service", so.Spec.TargetRef.Name).Error(err, "failed to read current workload state")
+	} else {
+		input.Current = currentState
+	}
+
+	// Compute right-sized resource recommendations from actual usage.
+	if input.Current.CPUUsage > 0 && input.Current.Replicas > 0 {
+		perReplicaCPU := (input.Current.CPUUsage / float64(input.Current.Replicas)) * 1.3
+		if perReplicaCPU < 0.01 {
+			perReplicaCPU = 0.01 // floor: 10m
+		}
+		if math.Abs(perReplicaCPU-input.Current.CPURequest) > input.Current.CPURequest*0.2 {
+			input.RightSizedCPU = &perReplicaCPU
+		}
+	}
+	if input.Current.MemoryUsage > 0 && input.Current.Replicas > 0 {
+		perReplicaMemory := (input.Current.MemoryUsage / float64(input.Current.Replicas)) * 1.3
+		if perReplicaMemory < 0.03125 {
+			perReplicaMemory = 0.03125 // floor: 32Mi
+		}
+		if math.Abs(perReplicaMemory-input.Current.MemoryRequest) > input.Current.MemoryRequest*0.2 {
+			input.RightSizedMemory = &perReplicaMemory
 		}
 	}
 
+	input.Metrics = map[string]float64{
+		"cpu_usage":        input.Current.CPUUsage,
+		"memory_usage_gib": input.Current.MemoryUsage,
+	}
+
 	return input
+}
+
+func (o *OptimizerController) readCurrentState(ctx context.Context, so *slov1alpha1.ServiceObjective) (cel.CurrentState, error) {
+	state := cel.CurrentState{
+		Replicas: 1,
+	}
+
+	if so.Spec.TargetRef.Kind != "Deployment" {
+		return state, nil
+	}
+
+	var dep appsv1.Deployment
+	if err := o.Get(ctx, types.NamespacedName{Namespace: so.Namespace, Name: so.Spec.TargetRef.Name}, &dep); err != nil {
+		return state, err
+	}
+
+	if dep.Spec.Replicas != nil && *dep.Spec.Replicas > 0 {
+		state.Replicas = int64(*dep.Spec.Replicas)
+	}
+
+	for _, container := range dep.Spec.Template.Spec.Containers {
+		if qty, ok := container.Resources.Requests[corev1.ResourceCPU]; ok {
+			state.CPURequest += float64(qty.MilliValue()) / 1000.0
+		}
+		if qty, ok := container.Resources.Requests[corev1.ResourceMemory]; ok {
+			state.MemoryRequest += float64(qty.Value()) / (1024 * 1024 * 1024)
+		}
+	}
+
+	if state.CPURequest == 0 {
+		state.CPURequest = 0.1
+	}
+	if state.MemoryRequest == 0 {
+		state.MemoryRequest = 0.25
+	}
+
+	state.CPUUsage = o.queryScalarOrZero(ctx, fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s-.*",container!="",container!="POD"}[5m]))`, so.Namespace, regexp.QuoteMeta(dep.Name)))
+	state.MemoryUsage = o.queryScalarOrZero(ctx, fmt.Sprintf(`sum(container_memory_working_set_bytes{namespace="%s",pod=~"%s-.*",container!="",container!="POD"}) / 1073741824`, so.Namespace, regexp.QuoteMeta(dep.Name)))
+
+	return state, nil
+}
+
+func (o *OptimizerController) queryScalarOrZero(ctx context.Context, query string) float64 {
+	if o.PromClient == nil {
+		return 0
+	}
+
+	value, err := o.PromClient.Query(ctx, query)
+	if err != nil {
+		if err == prommetrics.ErrNoData {
+			return 0
+		}
+		ctrl.Log.WithName("optimizer").V(1).Info("prometheus query failed", "query", query, "error", err.Error())
+		return 0
+	}
+
+	return value
+}
+
+func buildSLOStatus(so *slov1alpha1.ServiceObjective) cel.SLOStatus {
+	status := cel.SLOStatus{}
+
+	for _, cond := range so.Status.Conditions {
+		if cond.Type == conditionSLOCompliant {
+			status.Compliant = cond.Status == metav1.ConditionTrue
+		}
+	}
+
+	status.BudgetRemaining = parsePercentOrZero(so.Status.BudgetRemaining)
+	for _, burn := range so.Status.CurrentBurn {
+		if value := parseFloatOrZero(burn); value > status.BurnRate {
+			status.BurnRate = value
+		}
+	}
+
+	return status
+}
+
+func serviceObjectiveReadyForOptimization(so *slov1alpha1.ServiceObjective) bool {
+	targetFound := false
+	sloKnown := false
+	for _, cond := range so.Status.Conditions {
+		switch cond.Type {
+		case conditionTargetFound:
+			targetFound = cond.Status == metav1.ConditionTrue
+		case conditionSLOCompliant:
+			sloKnown = cond.Status != metav1.ConditionUnknown
+		}
+	}
+	return targetFound && sloKnown
+}
+
+func buildActuationOptions(action engine.ScalingAction, policies []policyv1alpha1.OptimizationPolicy) actuator.ActuationOptions {
+	opts := actuator.ActuationOptions{DryRun: action.DryRun}
+
+	for _, policy := range policies {
+		if policy.Spec.ScalingBehavior == nil {
+			continue
+		}
+
+		var rule *policyv1alpha1.ScalingRule
+		switch action.Type {
+		case engine.ActionScaleUp:
+			rule = policy.Spec.ScalingBehavior.ScaleUp
+		case engine.ActionScaleDown:
+			rule = policy.Spec.ScalingBehavior.ScaleDown
+		}
+
+		if rule == nil {
+			continue
+		}
+
+		if rule.MaxPercent > 0 {
+			maxChange := float64(rule.MaxPercent) / 100.0
+			if opts.MaxChange == 0 || maxChange < opts.MaxChange {
+				opts.MaxChange = maxChange
+			}
+		}
+
+		if rule.CooldownSeconds > opts.CooldownSeconds {
+			opts.CooldownSeconds = rule.CooldownSeconds
+		}
+	}
+
+	return opts
+}
+
+func parsePercentOrZero(raw string) float64 {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(raw, "%"))
+	if trimmed == "" {
+		return 0
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0
+	}
+	return value / 100.0
+}
+
+func parseFloatOrZero(raw string) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0
+	}
+	return value
 }

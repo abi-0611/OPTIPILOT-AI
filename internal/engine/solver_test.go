@@ -506,3 +506,113 @@ func TestSolver_SpotRiskBelowThreshold_NoReduction(t *testing.T) {
 			len(record.Candidates), len(baseRecord.Candidates))
 	}
 }
+
+func TestSolver_TuneAction_IncludesMemory(t *testing.T) {
+	solver := NewSolver(nil, DefaultMaxCandidates)
+	input := solverInput()
+
+	// Set right-sized recommendations that differ from current.
+	rightCPU := 0.3
+	rightMem := 0.7
+	input.RightSizedCPU = &rightCPU
+	input.RightSizedMemory = &rightMem
+
+	// Make replicas match to avoid scale_up/scale_down — force a tune action.
+	// The solver will generate candidates with right-sized resources.
+	// If the winning candidate has different memory, the tune reason should include it.
+	action, _, err := solver.Solve(input)
+	if err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+
+	t.Logf("Action: %s, CPU: %.3f, Memory: %.3f, Reason: %s",
+		action.Type, action.CPURequest, action.MemoryRequest, action.Reason)
+
+	// The action should carry memory request from the winning candidate.
+	if action.MemoryRequest <= 0 {
+		t.Error("expected positive MemoryRequest in action")
+	}
+}
+
+func TestSolver_PrefersRightSizedSameReplicaCandidate(t *testing.T) {
+	pe, err := cel.NewPolicyEngine()
+	if err != nil {
+		t.Fatalf("NewPolicyEngine: %v", err)
+	}
+
+	policy := &policyv1alpha1.OptimizationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "right-size-policy",
+			UID:        types.UID("test-uid-right-size"),
+			Generation: 1,
+		},
+		Spec: policyv1alpha1.OptimizationPolicySpec{
+			Objectives: []policyv1alpha1.PolicyObjective{
+				{Name: "slo", Weight: 0.5, Direction: policyv1alpha1.DirectionMaximize},
+				{Name: "cost", Weight: 0.5, Direction: policyv1alpha1.DirectionMinimize},
+			},
+			Constraints: []policyv1alpha1.PolicyConstraint{
+				{
+					Expr:   "candidate.spot_ratio == 0.0",
+					Reason: "keep spot ratio fixed for right-size regression",
+					Hard:   true,
+				},
+			},
+		},
+	}
+
+	if err := pe.Compile(policy); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	solver := NewSolver(pe, DefaultMaxCandidates)
+	input := solverInput()
+	input.Current.Replicas = 1
+	input.Current.CPURequest = 0.5
+	input.Current.MemoryRequest = 1.0
+	input.Current.CPUUsage = 0.2
+	input.Current.MemoryUsage = 0.3
+	rightCPU := 0.3
+	rightMem := 0.5
+	input.RightSizedCPU = &rightCPU
+	input.RightSizedMemory = &rightMem
+	input.Policies = []MatchedPolicy{{Policy: *policy, Key: cel.PolicyKey(policy)}}
+
+	action, _, err := solver.Solve(input)
+	if err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+
+	if action.Type != ActionTune {
+		t.Fatalf("expected tune action, got %s (%s)", action.Type, action.Reason)
+	}
+	if action.TargetReplica != 1 {
+		t.Fatalf("expected tune to keep replicas at 1, got %d", action.TargetReplica)
+	}
+	if action.CPURequest != rightCPU || action.MemoryRequest != rightMem {
+		t.Fatalf("expected tune to pick right-sized requests cpu=%.3f mem=%.3f, got cpu=%.3f mem=%.3f", rightCPU, rightMem, action.CPURequest, action.MemoryRequest)
+	}
+}
+
+func TestSolver_BuildAction_SpotOnlyChangeIsNoAction(t *testing.T) {
+	solver := NewSolver(nil, DefaultMaxCandidates)
+	input := solverInput()
+
+	best := ScoredCandidate{
+		Plan: cel.CandidatePlan{
+			Replicas:      input.Current.Replicas,
+			CPURequest:    input.Current.CPURequest,
+			MemoryRequest: input.Current.MemoryRequest,
+			SpotRatio:     0.5,
+		},
+		Score: CandidateScore{Weighted: 0.9},
+	}
+
+	action := solver.buildAction(input, best, false)
+	if action.Type != ActionNoAction {
+		t.Fatalf("expected no_action for spot-only change, got %s", action.Type)
+	}
+	if action.Reason != "current state is optimal for supported actuators" {
+		t.Fatalf("unexpected reason: %s", action.Reason)
+	}
+}

@@ -3,7 +3,7 @@
 #
 # Creates a kind cluster, installs Prometheus + OptiPilot, deploys a sample
 # application, applies a ServiceObjective + OptimizationPolicy, and
-# port-forwards the dashboard API. Re-running is fully idempotent.
+# port-forwards the OptiPilot API and Prometheus UI. Re-running is fully idempotent.
 #
 # Usage:
 #   ./hack/quickstart.sh                # spin up the demo
@@ -24,7 +24,7 @@ NS_SYSTEM="optipilot-system"
 NS_MONITORING="monitoring"
 NS_DEMO="demo"
 DASHBOARD_LOCAL_PORT="8090"
-METRICS_LOCAL_PORT="8080"
+PROMETHEUS_LOCAL_PORT="9090"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
@@ -97,7 +97,7 @@ if ${DESTROY}; then
 
   # Kill any lingering port-forwards from this session
   if command -v lsof &>/dev/null; then
-    for port in "${DASHBOARD_LOCAL_PORT}" "${METRICS_LOCAL_PORT}"; do
+    for port in "${DASHBOARD_LOCAL_PORT}" "${PROMETHEUS_LOCAL_PORT}"; do
       pids=$(lsof -ti :"${port}" 2>/dev/null || true)
       if [ -n "${pids}" ]; then
         echo "${pids}" | xargs kill -9 2>/dev/null || true
@@ -363,37 +363,54 @@ ok "OptimizationPolicy 'demo-policy' created (dryRun=true — no actual actuatio
 # ── Step 7: Port-forward dashboard ────────────────────────────────────────
 print_header "Step 7/7 — Starting dashboard port-forward"
 
-# Release any existing port-forward on the dashboard port
+# Release any existing port-forwards on the local ports
 if command -v lsof &>/dev/null; then
-  existing_pids=$(lsof -ti :"${DASHBOARD_LOCAL_PORT}" 2>/dev/null || true)
-  if [ -n "${existing_pids}" ]; then
-    echo "${existing_pids}" | xargs kill -9 2>/dev/null || true
-    info "Released existing port-forward on :${DASHBOARD_LOCAL_PORT}."
-  fi
+  for port in "${DASHBOARD_LOCAL_PORT}" "${PROMETHEUS_LOCAL_PORT}"; do
+    existing_pids=$(lsof -ti :"${port}" 2>/dev/null || true)
+    if [ -n "${existing_pids}" ]; then
+      echo "${existing_pids}" | xargs kill -9 2>/dev/null || true
+      info "Released existing port-forward on :${port}."
+    fi
+  done
 fi
 
-# Wait for the manager pod to be ready
-info "Waiting for OptiPilot manager pod to be Ready (up to 2 min)…"
-kubectl wait pod \
+# Wait for the manager deployment to be ready
+info "Waiting for OptiPilot manager deployment to be Ready (up to 2 min)…"
+kubectl rollout status \
+  deployment/"${RELEASE_NAME}-cluster-agent" \
   -n "${NS_SYSTEM}" \
-  -l "app.kubernetes.io/component=cluster-agent" \
-  --for=condition=Ready \
   --timeout=120s
 
 # Start port-forward in background
 kubectl port-forward \
   -n "${NS_SYSTEM}" \
-  "svc/${RELEASE_NAME}-optipilot" \
+  "svc/${RELEASE_NAME}-cluster-agent" \
   "${DASHBOARD_LOCAL_PORT}:8090" \
   >/tmp/optipilot-dashboard-pf.log 2>&1 &
 DASHBOARD_PF_PID=$!
+
+# Start Prometheus port-forward in background so the host can reach it.
+kubectl port-forward \
+  -n "${NS_MONITORING}" \
+  "svc/kube-prometheus-stack-prometheus" \
+  "${PROMETHEUS_LOCAL_PORT}:9090" \
+  >/tmp/optipilot-prometheus-pf.log 2>&1 &
+PROMETHEUS_PF_PID=$!
 
 sleep 2
 if kill -0 "${DASHBOARD_PF_PID}" 2>/dev/null; then
   ok "Dashboard port-forward started (PID ${DASHBOARD_PF_PID})."
 else
   warn "Port-forward may have failed. Check /tmp/optipilot-dashboard-pf.log"
-  warn "Manual: kubectl port-forward -n ${NS_SYSTEM} svc/${RELEASE_NAME}-optipilot ${DASHBOARD_LOCAL_PORT}:8090"
+  warn "Manual: kubectl port-forward -n ${NS_SYSTEM} svc/${RELEASE_NAME}-cluster-agent ${DASHBOARD_LOCAL_PORT}:8090"
+fi
+
+sleep 2
+if kill -0 "${PROMETHEUS_PF_PID}" 2>/dev/null; then
+  ok "Prometheus port-forward started (PID ${PROMETHEUS_PF_PID})."
+else
+  warn "Prometheus port-forward may have failed. Check /tmp/optipilot-prometheus-pf.log"
+  warn "Manual: kubectl port-forward -n ${NS_MONITORING} svc/kube-prometheus-stack-prometheus ${PROMETHEUS_LOCAL_PORT}:9090"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────
@@ -402,8 +419,8 @@ print_header "OptiPilot AI Demo Ready! 🚀"
 cat <<WELCOME
 
   ┌─────────────────────────────────────────────────────────┐
-  │  Dashboard API   http://localhost:${DASHBOARD_LOCAL_PORT}                    │
-  │  Prometheus      ${PROM_URL}  │
+  │  OptiPilot API    http://localhost:${DASHBOARD_LOCAL_PORT}/api/v1/decisions │
+  │  Prometheus      http://localhost:${PROMETHEUS_LOCAL_PORT}                  │
   └─────────────────────────────────────────────────────────┘
 
   Quick API exploration:
@@ -424,10 +441,10 @@ cat <<WELCOME
     kubectl get serviceobjective demo-api-slo -n ${NS_DEMO} -o yaml
 
     # Watch manager logs
-    kubectl logs -n ${NS_SYSTEM} -l app.kubernetes.io/component=cluster-agent -f
+    kubectl logs -n ${NS_SYSTEM} -l app.kubernetes.io/name=cluster-agent,app.kubernetes.io/instance=${RELEASE_NAME} -f
 
   Manager logs:
-    kubectl logs -n ${NS_SYSTEM} -l app.kubernetes.io/component=cluster-agent
+    kubectl logs -n ${NS_SYSTEM} -l app.kubernetes.io/name=cluster-agent,app.kubernetes.io/instance=${RELEASE_NAME}
 
   Tear down everything:
     ./hack/quickstart.sh --destroy

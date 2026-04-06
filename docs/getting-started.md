@@ -92,6 +92,87 @@ With the port-forward from Step 5 still running:
 open http://localhost:8090
 ```
 
+## Using OptiPilot With Your Own Project
+
+OptiPilot does not control code in a folder directly. It watches Kubernetes
+workloads, reads Prometheus metrics, and then recommends or applies changes to
+the workload objects running in the cluster.
+
+For your CodePro project in `E:\codepro`, the easiest first target is the
+backend API service because it already exposes `/health` and `/metrics`.
+
+What you need first:
+
+- A Kubernetes deployment for CodePro running in the same cluster as OptiPilot
+- Prometheus scraping the backend metrics endpoint
+- A `ServiceObjective` that points at the CodePro deployment you want to tune
+- An `OptimizationPolicy` that selects that workload by label
+
+Use the backend service as the first example. The project already has these
+runtime settings in `admin-backend/.env.example`:
+
+- `DATABASE_URL`
+- `SECRET_KEY`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `REDIS_URL`
+
+Once the CodePro backend is deployed to Kubernetes, apply an SLO like this:
+
+```yaml
+apiVersion: slo.optipilot.ai/v1alpha1
+kind: ServiceObjective
+metadata:
+  name: codepro-api-slo
+  namespace: codepro
+  labels:
+    app: codepro-api
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  objectives:
+    - metric: availability
+      target: "99.9%"
+      window: "5m"
+    - metric: latency_p99
+      target: "500ms"
+      window: "5m"
+  evaluationInterval: "30s"
+  errorBudget:
+    total: "0.1%"
+```
+
+Then apply a policy that OptiPilot can use for decisions:
+
+The `OptimizationPolicy.selector` matches labels on the ServiceObjective, so
+the SLO above includes `app: codepro-api`.
+
+```yaml
+apiVersion: policy.optipilot.ai/v1alpha1
+kind: OptimizationPolicy
+metadata:
+  name: codepro-api-policy
+  namespace: codepro
+spec:
+  selector:
+    matchLabels:
+      app: codepro-api
+  objectives:
+    - name: slo_compliance
+      direction: maximize
+      weight: 0.7
+    - name: cost
+      direction: minimize
+      weight: 0.3
+  dryRun: true
+```
+
+If you have not deployed CodePro to Kubernetes yet, that is the next step.
+I can help scaffold the Kubernetes manifests for `E:\codepro` next if you want
+the exact deployment files.
+
 ## Cleanup
 
 ```bash

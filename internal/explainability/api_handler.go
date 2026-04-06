@@ -19,8 +19,8 @@ func NewAPIHandler(journal *Journal) *APIHandler {
 
 // RegisterRoutes registers decision API routes on the given mux.
 func (h *APIHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/decisions", h.handleListDecisions)
-	mux.HandleFunc("GET /api/v1/decisions/{id}", h.handleGetDecision)
+	mux.HandleFunc("/api/v1/decisions", h.handleListDecisions)
+	mux.HandleFunc("/api/v1/decisions/{id}", h.handleGetDecision)
 }
 
 // handleListDecisions handles GET /api/v1/decisions?namespace=X&service=Y&since=T&limit=N

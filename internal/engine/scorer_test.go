@@ -98,6 +98,33 @@ func TestScoreSLO_WithForecast(t *testing.T) {
 	}
 }
 
+func TestScoreSLO_NonCompliantPrefersScaleUp(t *testing.T) {
+	input := &SolverInput{
+		Current: cel.CurrentState{
+			Replicas:   1,
+			CPURequest: 0.1,
+			CPUUsage:   0.01,
+		},
+		SLO: cel.SLOStatus{
+			Compliant: false,
+			BurnRate:  25,
+		},
+	}
+	scorer := NewScorer(input, nil)
+
+	down := scorer.scoreSLO(cel.CandidatePlan{Replicas: 1, CPURequest: 0.1})
+	up := scorer.scoreSLO(cel.CandidatePlan{Replicas: 2, CPURequest: 0.1})
+
+	if up <= down {
+		t.Fatalf("expected scale-up candidate to outscore current candidate when SLO is degraded, got up=%.2f current=%.2f", up, down)
+	}
+
+	downscale := scorer.scoreSLO(cel.CandidatePlan{Replicas: 0, CPURequest: 0.1})
+	if downscale != 0.0 {
+		t.Fatalf("expected downscale candidate to score 0 when SLO is degraded, got %.2f", downscale)
+	}
+}
+
 func TestScoreCostNormalization(t *testing.T) {
 	// Three candidates with costs: 1.0, 2.0, 3.0
 	// min=1.0, max=3.0

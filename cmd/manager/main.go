@@ -16,6 +16,7 @@ import (
 	policyv1alpha1 "github.com/optipilot-ai/optipilot/api/policy/v1alpha1"
 	slov1alpha1 "github.com/optipilot-ai/optipilot/api/slo/v1alpha1"
 	tenantv1alpha1 "github.com/optipilot-ai/optipilot/api/tenant/v1alpha1"
+	"github.com/optipilot-ai/optipilot/internal/actuator"
 	"github.com/optipilot-ai/optipilot/internal/api"
 	"github.com/optipilot-ai/optipilot/internal/cel"
 	"github.com/optipilot-ai/optipilot/internal/controller"
@@ -23,6 +24,7 @@ import (
 	"github.com/optipilot-ai/optipilot/internal/explainability"
 	"github.com/optipilot-ai/optipilot/internal/global/spoke"
 	"github.com/optipilot-ai/optipilot/internal/metrics"
+	"github.com/optipilot-ai/optipilot/internal/simulator"
 	"github.com/optipilot-ai/optipilot/internal/slo"
 )
 
@@ -100,11 +102,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	promClient := metrics.NewHTTPPrometheusClient(prometheusURL, 10*time.Second, 5*time.Second)
+
 	if err = (&controller.ServiceObjectiveReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		Evaluator: slo.NewSLOEvaluator(
-			metrics.NewHTTPPrometheusClient(prometheusURL, 10*time.Second, 5*time.Second),
+			promClient,
 			slo.NewPromQLBuilderFromAnnotations(nil, "", ""),
 		),
 		Recorder: mgr.GetEventRecorderFor("serviceobjective-controller"),
@@ -159,6 +163,13 @@ func main() {
 		PolicyRecon: policyRecon,
 		Journal:     journal,
 		Recorder:    mgr.GetEventRecorderFor("optimizer-controller"),
+		ActuatorReg: func() *actuator.Registry {
+			registry := actuator.NewRegistry()
+			registry.Register(actuator.NewPodActuator(mgr.GetClient()))
+			return registry
+		}(),
+		SafetyGuard: actuator.NewSafetyGuard(mgr.GetClient()),
+		PromClient:  promClient,
 	}
 	if err := mgr.Add(optimizerCtrl); err != nil {
 		setupLog.Error(err, "unable to register optimizer controller")
@@ -170,9 +181,23 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	// REST API + Dashboard server.
-	// All three handler types implement api.RouteRegistrar via RegisterRoutes(*http.ServeMux).
+	// All handler types implement api.RouteRegistrar via RegisterRoutes(*http.ServeMux).
 	decisionsHandler := api.NewDecisionsAPIHandler(journal)
-	apiServer := api.NewServer(apiAddr, dashboardFS, decisionsHandler)
+
+	// WhatIf handler — use a no-op solver; nil history/decisions means simulations
+	// return empty data but the endpoints are reachable for the demo.
+	whatIfSolverFunc := func(snapshot simulator.SimulationSnapshot) simulator.SimulatedAction {
+		return simulator.SimulatedAction{Replicas: snapshot.Replicas}
+	}
+	curveFactory := simulator.SLOCurveSolverFactory(func(string, float64) simulator.SolverFunc {
+		return whatIfSolverFunc
+	})
+	whatIfHandler := api.NewWhatIfAPIHandler(nil, nil, whatIfSolverFunc, curveFactory)
+
+	// TenantAPI handler — manager and detector are not wired in quickstart build.
+	tenantHandler := api.NewTenantAPIHandler(nil, promClient, nil)
+
+	apiServer := api.NewServer(apiAddr, dashboardFS, decisionsHandler, whatIfHandler, tenantHandler)
 	go func() {
 		setupLog.Info("starting API server", "addr", apiAddr)
 		if err := apiServer.Start(ctx); err != nil {

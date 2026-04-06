@@ -127,8 +127,26 @@ func TestQuickstart_DashboardPort8090(t *testing.T) {
 	quickstartContains(t, "8090", "must port-forward to dashboard port 8090")
 }
 
-func TestQuickstart_WaitsForPodReady(t *testing.T) {
-	quickstartContains(t, "condition=Ready", "must wait for manager pod Ready before port-forwarding")
+func TestQuickstart_PortForwardsPrometheus(t *testing.T) {
+	quickstartContains(t, "kube-prometheus-stack-prometheus", "must port-forward the Prometheus service for host access")
+	quickstartContains(t, "PROMETHEUS_LOCAL_PORT=\"9090\"", "must map Prometheus to localhost port 9090")
+}
+
+func TestQuickstart_UsesDecisionAPIPath(t *testing.T) {
+	quickstartContains(t, "/api/v1/decisions", "must advertise the OptiPilot API path instead of the root 404 path")
+}
+
+func TestQuickstart_WaitsForDeploymentReady(t *testing.T) {
+	quickstartContains(t, "rollout status", "must wait for manager deployment readiness before port-forwarding")
+	quickstartContains(t, "deployment/\"${RELEASE_NAME}-cluster-agent\"", "must wait on the cluster-agent deployment")
+}
+
+func TestQuickstart_UsesClusterAgentServiceForPortForward(t *testing.T) {
+	quickstartContains(t, "svc/${RELEASE_NAME}-cluster-agent", "must port-forward the cluster-agent service")
+}
+
+func TestQuickstart_UsesPodLabelSelectorForLogs(t *testing.T) {
+	quickstartContains(t, "app.kubernetes.io/name=cluster-agent,app.kubernetes.io/instance=${RELEASE_NAME}", "must use the pod label selector that matches the cluster-agent pods")
 }
 
 func TestQuickstart_DeletesClusterOnDestroy(t *testing.T) {

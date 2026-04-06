@@ -50,9 +50,9 @@ func TestGenerateCandidates_Dedup(t *testing.T) {
 
 	seen := make(map[candidateKey]struct{})
 	for _, c := range candidates {
-		key := candidateKey{Replicas: c.Replicas, CPURequest: c.CPURequest, SpotRatio: c.SpotRatio}
+		key := candidateKey{Replicas: c.Replicas, CPURequest: c.CPURequest, MemoryRequest: c.MemoryRequest, SpotRatio: c.SpotRatio}
 		if _, dup := seen[key]; dup {
-			t.Errorf("duplicate candidate: replicas=%d cpu=%.3f spot=%.1f", c.Replicas, c.CPURequest, c.SpotRatio)
+			t.Errorf("duplicate candidate: replicas=%d cpu=%.3f mem=%.3f spot=%.1f", c.Replicas, c.CPURequest, c.MemoryRequest, c.SpotRatio)
 		}
 		seen[key] = struct{}{}
 	}
@@ -100,6 +100,37 @@ func TestGenerateCandidates_WithRightSizing(t *testing.T) {
 	t.Logf("Generated %d candidates with right-sizing", len(candidates))
 }
 
+func TestGenerateCandidates_MemoryOnlyRightSizingVariant(t *testing.T) {
+	input := baseInput()
+	rightCPU := input.Current.CPURequest
+	rightMem := 0.5
+	input.RightSizedCPU = &rightCPU
+	input.RightSizedMemory = &rightMem
+
+	candidates := GenerateCandidates(input, DefaultMaxCandidates)
+
+	hasCurrent := false
+	hasRightSized := false
+	for _, c := range candidates {
+		if c.Replicas != input.Current.Replicas || c.SpotRatio != 0.0 {
+			continue
+		}
+		if c.CPURequest == input.Current.CPURequest && c.MemoryRequest == input.Current.MemoryRequest {
+			hasCurrent = true
+		}
+		if c.CPURequest == input.Current.CPURequest && c.MemoryRequest == rightMem {
+			hasRightSized = true
+		}
+	}
+
+	if !hasCurrent {
+		t.Fatal("expected current resource candidate to be preserved")
+	}
+	if !hasRightSized {
+		t.Fatal("expected memory-only right-sized candidate to be preserved")
+	}
+}
+
 func TestGenerateCandidates_Cap(t *testing.T) {
 	input := baseInput()
 	input.Current.Replicas = 100 // Large current → all 8 multipliers produce unique values
@@ -132,6 +163,8 @@ func TestGenerateCandidates_CostEstimated(t *testing.T) {
 		if c.SpotRatio > 0 && c.SpotCount > 0 {
 			allOnDemand := estimateCost(cel.CandidatePlan{
 				Replicas:      c.Replicas,
+				CPURequest:    c.CPURequest,
+				MemoryRequest: c.MemoryRequest,
 				OnDemandCount: c.Replicas,
 				SpotCount:     0,
 			}, "m5.large", "us-east-1")
@@ -140,6 +173,28 @@ func TestGenerateCandidates_CostEstimated(t *testing.T) {
 					c.SpotRatio*100, c.EstimatedCost, allOnDemand)
 			}
 		}
+	}
+}
+
+func TestEstimateCost_RightSizedRequestsCheaper(t *testing.T) {
+	full := cel.CandidatePlan{
+		Replicas:      1,
+		CPURequest:    0.5,
+		MemoryRequest: 1.0,
+		OnDemandCount: 1,
+	}
+	rightSized := cel.CandidatePlan{
+		Replicas:      1,
+		CPURequest:    0.25,
+		MemoryRequest: 0.5,
+		OnDemandCount: 1,
+	}
+
+	fullCost := estimateCost(full, "m5.large", "us-east-1")
+	rightSizedCost := estimateCost(rightSized, "m5.large", "us-east-1")
+
+	if rightSizedCost >= fullCost {
+		t.Fatalf("expected right-sized plan to cost less, got right-sized=$%.4f full=$%.4f", rightSizedCost, fullCost)
 	}
 }
 

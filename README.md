@@ -74,8 +74,11 @@
 ```bash
 git clone https://github.com/optipilot-ai/optipilot.git
 cd optipilot
-./hack/quickstart.sh
+./hack/quickstart.sh --build-local
 ```
+
+Use `--build-local` from a source checkout so kind loads the manager image you
+just built. If you already publish images to GHCR, you can omit that flag.
 
 The script will:
 1. Create a `kind` cluster (`optipilot-quickstart`)
@@ -83,7 +86,11 @@ The script will:
 3. Install OptiPilot from the local chart
 4. Deploy a sample `demo-api` application
 5. Apply a `ServiceObjective` + `OptimizationPolicy`
-6. Port-forward the dashboard API to `http://localhost:8090`
+6. Port-forward the OptiPilot API to `http://localhost:8090/api/v1/decisions`
+7. Port-forward Prometheus to `http://localhost:9090`
+
+In the local `--build-local` image, the root path `http://localhost:8090/` returns
+404 because the UI bundle is not embedded. Use the API path above instead.
 
 **Explore decisions in real time:**
 

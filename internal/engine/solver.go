@@ -211,6 +211,9 @@ func (s *Solver) buildAction(input *SolverInput, best ScoredCandidate, dryRun bo
 	}
 
 	currentReplicas := input.Current.Replicas
+	cpuChanged := best.Plan.CPURequest != input.Current.CPURequest
+	memoryChanged := best.Plan.MemoryRequest != input.Current.MemoryRequest
+	spotChanged := best.Plan.SpotRatio != input.Current.SpotRatio
 	if best.Plan.Replicas > currentReplicas {
 		action.Type = ActionScaleUp
 		action.Reason = fmt.Sprintf("scale up: %d → %d replicas (weighted score %.3f)",
@@ -219,12 +222,23 @@ func (s *Solver) buildAction(input *SolverInput, best ScoredCandidate, dryRun bo
 		action.Type = ActionScaleDown
 		action.Reason = fmt.Sprintf("scale down: %d → %d replicas (weighted score %.3f)",
 			currentReplicas, best.Plan.Replicas, best.Score.Weighted)
-	} else if best.Plan.CPURequest != input.Current.CPURequest || best.Plan.SpotRatio != input.Current.SpotRatio {
+	} else if cpuChanged || memoryChanged {
 		action.Type = ActionTune
-		action.Reason = fmt.Sprintf("tune: cpu %.3f→%.3f, spot %.0f%%→%.0f%% (weighted score %.3f)",
-			input.Current.CPURequest, best.Plan.CPURequest,
-			input.Current.SpotRatio*100, best.Plan.SpotRatio*100,
-			best.Score.Weighted)
+		if spotChanged {
+			action.Reason = fmt.Sprintf("tune: cpu %.3f→%.3f, mem %.3f→%.3f GiB, spot %.0f%%→%.0f%% (weighted score %.3f)",
+				input.Current.CPURequest, best.Plan.CPURequest,
+				input.Current.MemoryRequest, best.Plan.MemoryRequest,
+				input.Current.SpotRatio*100, best.Plan.SpotRatio*100,
+				best.Score.Weighted)
+		} else {
+			action.Reason = fmt.Sprintf("tune: cpu %.3f→%.3f, mem %.3f→%.3f GiB (weighted score %.3f)",
+				input.Current.CPURequest, best.Plan.CPURequest,
+				input.Current.MemoryRequest, best.Plan.MemoryRequest,
+				best.Score.Weighted)
+		}
+	} else if spotChanged {
+		action.Type = ActionNoAction
+		action.Reason = "current state is optimal for supported actuators"
 	} else {
 		action.Type = ActionNoAction
 		action.Reason = "current state is optimal"

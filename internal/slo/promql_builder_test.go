@@ -79,6 +79,18 @@ func TestPromQLBuilder_BuildQuery_Availability(t *testing.T) {
 	}
 }
 
+func TestPromQLBuilder_BuildQuery_OverrideExistingMetric(t *testing.T) {
+	b := &slo.PromQLBuilder{MetricPrefix: "ignored", Labels: `namespace="prod"`}
+	customQ := `histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket{namespace="codepro",service="api"}[5m])) by (le))`
+	q, err := b.BuildQuery(slov1alpha1.MetricLatencyP99, "5m", customQ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q != customQ {
+		t.Errorf("expected custom query override, got: %s", q)
+	}
+}
+
 func TestPromQLBuilder_BuildQuery_Throughput(t *testing.T) {
 	b := &slo.PromQLBuilder{MetricPrefix: "myapp", Labels: `namespace="prod"`}
 	q, err := b.BuildQuery(slov1alpha1.MetricThroughput, "5m", "")

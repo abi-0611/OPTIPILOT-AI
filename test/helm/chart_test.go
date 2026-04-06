@@ -89,6 +89,25 @@ func TestChartYAML_Dependencies(t *testing.T) {
 	}
 }
 
+func TestChartYAML_DependencyAliases(t *testing.T) {
+	chart := readYAML(t, filepath.Join(chartRoot, "Chart.yaml"))
+	deps := chart["dependencies"].([]interface{})
+	aliases := map[string]string{}
+	for _, d := range deps {
+		dep := d.(map[string]interface{})
+		name := dep["name"].(string)
+		if alias, ok := dep["alias"].(string); ok {
+			aliases[name] = alias
+		}
+	}
+	if aliases["cluster-agent"] != "clusterAgent" {
+		t.Errorf("cluster-agent alias=%q, want clusterAgent", aliases["cluster-agent"])
+	}
+	if aliases["ml-service"] != "mlService" {
+		t.Errorf("ml-service alias=%q, want mlService", aliases["ml-service"])
+	}
+}
+
 func TestValuesYAML_Structure(t *testing.T) {
 	values := readYAML(t, filepath.Join(chartRoot, "values.yaml"))
 
@@ -138,6 +157,22 @@ func TestValuesYAML_ClusterAgentEnabledByDefault(t *testing.T) {
 	ca := values["clusterAgent"].(map[string]interface{})
 	if ca["enabled"] != true {
 		t.Errorf("clusterAgent.enabled=%v, want true", ca["enabled"])
+	}
+}
+
+func TestValuesYAML_ClusterAgentNameOverride(t *testing.T) {
+	values := readYAML(t, filepath.Join(chartRoot, "values.yaml"))
+	ca := values["clusterAgent"].(map[string]interface{})
+	if ca["nameOverride"] != "cluster-agent" {
+		t.Errorf("clusterAgent.nameOverride=%v, want cluster-agent", ca["nameOverride"])
+	}
+}
+
+func TestValuesYAML_MLServiceNameOverride(t *testing.T) {
+	values := readYAML(t, filepath.Join(chartRoot, "values.yaml"))
+	mlService := values["mlService"].(map[string]interface{})
+	if mlService["nameOverride"] != "ml-service" {
+		t.Errorf("mlService.nameOverride=%v, want ml-service", mlService["nameOverride"])
 	}
 }
 

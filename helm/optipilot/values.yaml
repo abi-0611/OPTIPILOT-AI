@@ -29,6 +29,8 @@ global:
 clusterAgent:
   enabled: true
 
+  nameOverride: cluster-agent
+
   image:
     repository: ghcr.io/optipilot-ai/optipilot/manager
     tag: ""        # Defaults to .Chart.AppVersion
@@ -97,6 +99,8 @@ clusterAgent:
 # ---------------------------------------------------------------------------
 mlService:
   enabled: false
+
+  nameOverride: ml-service
 
   image:
     repository: ghcr.io/optipilot-ai/optipilot/ml

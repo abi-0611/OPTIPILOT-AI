@@ -43,9 +43,9 @@ func NewWhatIfAPIHandler(
 
 // RegisterRoutes registers what-if simulation routes on the given mux.
 func (h *WhatIfAPIHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/simulate", h.handleRunSimulation)
-	mux.HandleFunc("GET /api/v1/simulate/{id}", h.handleGetSimulation)
-	mux.HandleFunc("POST /api/v1/simulate/slo-cost-curve", h.handleSLOCostCurve)
+	mux.HandleFunc("/api/v1/simulate/slo-cost-curve", h.handleSLOCostCurve)
+	mux.HandleFunc("/api/v1/simulate/{id}", h.handleGetSimulation)
+	mux.HandleFunc("/api/v1/simulate", h.handleRunSimulation)
 }
 
 // ── Request / response types ─────────────────────────────────────────────────

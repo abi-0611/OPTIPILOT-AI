@@ -92,7 +92,8 @@ func (r *ServiceObjectiveReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	start := time.Now()
-	result, evalErr := r.Evaluator.Evaluate(ctx, &so)
+	evaluator := r.evaluatorForTarget(ctx, &so)
+	result, evalErr := evaluator.Evaluate(ctx, &so)
 	duration := time.Since(start)
 
 	ctrlmetrics.SLOEvaluationDuration.WithLabelValues(so.Namespace, so.Name).Observe(duration.Seconds())
@@ -188,6 +189,19 @@ func (r *ServiceObjectiveReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	return ctrl.Result{RequeueAfter: evalInterval(&so)}, nil
+}
+
+func (r *ServiceObjectiveReconciler) evaluatorForTarget(ctx context.Context, so *slov1alpha1.ServiceObjective) *slo.SLOEvaluator {
+	builder := slo.NewPromQLBuilderFromAnnotations(nil, so.Spec.TargetRef.Name, so.Namespace)
+
+	if so.Spec.TargetRef.Kind == "Deployment" {
+		var dep appsv1.Deployment
+		if err := r.Get(ctx, types.NamespacedName{Namespace: so.Namespace, Name: so.Spec.TargetRef.Name}, &dep); err == nil {
+			builder = slo.NewPromQLBuilderFromAnnotations(dep.Annotations, dep.Name, dep.Namespace)
+		}
+	}
+
+	return slo.NewSLOEvaluator(r.Evaluator.PromClient, builder)
 }
 
 // targetExists checks whether the TargetRef workload is present in the cluster.

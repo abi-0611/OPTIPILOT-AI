@@ -72,6 +72,10 @@ func (s *Scorer) ScoreAll(candidates []cel.CandidatePlan) []ScoredCandidate {
 
 // scoreSLO predicts SLO compliance based on capacity ratio.
 func (s *Scorer) scoreSLO(c cel.CandidatePlan) float64 {
+	if !s.input.SLO.Compliant && hasObservedSLOSignal(s.input.SLO) {
+		return s.scoreDegradedSLO(c)
+	}
+
 	demand := s.currentDemand()
 	if demand <= 0 {
 		return 1.0 // no demand, any candidate meets SLO
@@ -89,6 +93,49 @@ func (s *Scorer) scoreSLO(c cel.CandidatePlan) float64 {
 	default:
 		return 0.0
 	}
+}
+
+func (s *Scorer) scoreDegradedSLO(c cel.CandidatePlan) float64 {
+	currentReplicas := s.input.Current.Replicas
+	if currentReplicas < 1 {
+		currentReplicas = 1
+	}
+
+	severityBonus := 0.0
+	switch {
+	case s.input.SLO.BurnRate >= 10:
+		severityBonus = 0.2
+	case s.input.SLO.BurnRate >= 1:
+		severityBonus = 0.1
+	}
+
+	if c.Replicas < currentReplicas {
+		return 0.0
+	}
+
+	if c.Replicas == currentReplicas {
+		score := 0.2 + severityBonus
+		if score > 0.4 {
+			return 0.4
+		}
+		return score
+	}
+
+	improvement := float64(c.Replicas-currentReplicas) / float64(currentReplicas)
+	score := 0.6 + math.Min(improvement, 1.0)*0.3 + severityBonus
+	if score > 1.0 {
+		return 1.0
+	}
+	return score
+}
+
+func hasObservedSLOSignal(status cel.SLOStatus) bool {
+	return status.BurnRate > 0 ||
+		status.BudgetRemaining > 0 ||
+		status.LatencyP99 > 0 ||
+		status.ErrorRate > 0 ||
+		status.Availability > 0 ||
+		status.Throughput > 0
 }
 
 // currentDemand returns the demand to score against.

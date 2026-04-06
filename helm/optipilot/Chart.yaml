@@ -24,10 +24,12 @@ annotations:
   artifacthub.io/license: Apache-2.0
 dependencies:
   - name: cluster-agent
+    alias: clusterAgent
     version: "0.1.0"
     repository: "file://charts/cluster-agent"
     condition: clusterAgent.enabled
   - name: ml-service
+    alias: mlService
     version: "0.1.0"
     repository: "file://charts/ml-service"
     condition: mlService.enabled

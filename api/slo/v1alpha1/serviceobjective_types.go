@@ -69,7 +69,8 @@ type Objective struct {
 	// +kubebuilder:default="5m"
 	Window string `json:"window,omitempty"`
 
-	// CustomQuery is a PromQL query (required when metric is "custom")
+	// CustomQuery overrides the built-in PromQL template for this objective.
+	// It is required when metric is "custom" and optional for built-in metric types.
 	// +optional
 	CustomQuery string `json:"customQuery,omitempty"`
 }

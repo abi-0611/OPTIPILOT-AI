@@ -19,9 +19,10 @@ var spotRatioVariants = []float64{0.0, 0.3, 0.5, 0.8, 1.0}
 
 // candidateKey is used for deduplication.
 type candidateKey struct {
-	Replicas   int64
-	CPURequest float64
-	SpotRatio  float64
+	Replicas      int64
+	CPURequest    float64
+	MemoryRequest float64
+	SpotRatio     float64
 }
 
 // GenerateCandidates produces candidate scaling plans as the cartesian product of
@@ -66,9 +67,10 @@ func GenerateCandidates(input *SolverInput, maxCandidates int) []cel.CandidatePl
 		for _, rv := range resourceVariants {
 			for _, sr := range spotRatioVariants {
 				key := candidateKey{
-					Replicas:   replicas,
-					CPURequest: rv.cpu,
-					SpotRatio:  sr,
+					Replicas:      replicas,
+					CPURequest:    rv.cpu,
+					MemoryRequest: rv.memory,
+					SpotRatio:     sr,
 				}
 				if _, dup := seen[key]; dup {
 					continue
@@ -112,11 +114,57 @@ func GenerateCandidates(input *SolverInput, maxCandidates int) []cel.CandidatePl
 	return pruned
 }
 
+type instanceCapacity struct {
+	CPUCores  float64
+	MemoryGiB float64
+}
+
+var instanceCapacities = map[string]instanceCapacity{
+	"m5.large":   {CPUCores: 2, MemoryGiB: 8},
+	"m5.xlarge":  {CPUCores: 4, MemoryGiB: 16},
+	"m5.2xlarge": {CPUCores: 8, MemoryGiB: 32},
+	"c5.large":   {CPUCores: 2, MemoryGiB: 4},
+	"c5.xlarge":  {CPUCores: 4, MemoryGiB: 8},
+	"r5.large":   {CPUCores: 2, MemoryGiB: 16},
+}
+
+var defaultInstanceCapacity = instanceCapacity{CPUCores: 2, MemoryGiB: 8}
+
 // estimateCost computes hourly cost blending spot and on-demand rates.
+// It approximates workload cost as the reserved share of an instance price so
+// right-sized candidates become economically distinguishable from the current state.
 func estimateCost(plan cel.CandidatePlan, instanceType, region string) float64 {
+	resourceShare := planResourceShare(plan, instanceType)
 	onDemandRate := cel.CostRateFunc(instanceType, region, false)
 	spotRate := cel.CostRateFunc(instanceType, region, true)
-	return float64(plan.OnDemandCount)*onDemandRate + float64(plan.SpotCount)*spotRate
+	return float64(plan.OnDemandCount)*onDemandRate*resourceShare + float64(plan.SpotCount)*spotRate*resourceShare
+}
+
+func planResourceShare(plan cel.CandidatePlan, instanceType string) float64 {
+	if plan.CPURequest <= 0 && plan.MemoryRequest <= 0 {
+		return 1.0
+	}
+
+	capacity, ok := instanceCapacities[instanceType]
+	if !ok {
+		capacity = defaultInstanceCapacity
+	}
+
+	cpuShare := 0.0
+	if capacity.CPUCores > 0 && plan.CPURequest > 0 {
+		cpuShare = plan.CPURequest / capacity.CPUCores
+	}
+
+	memoryShare := 0.0
+	if capacity.MemoryGiB > 0 && plan.MemoryRequest > 0 {
+		memoryShare = plan.MemoryRequest / capacity.MemoryGiB
+	}
+
+	share := math.Max(cpuShare, memoryShare)
+	if share <= 0 {
+		return 1.0
+	}
+	return share
 }
 
 // estimateCarbon computes gCO2/hr using cost × carbon intensity × PUE factor.

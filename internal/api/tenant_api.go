@@ -33,11 +33,11 @@ func NewTenantAPIHandler(manager TenantStateReader, prom metrics.PrometheusClien
 
 // RegisterRoutes registers tenant API routes on the given mux.
 func (h *TenantAPIHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/tenants", h.handleListTenants)
-	mux.HandleFunc("GET /api/v1/tenants/{name}/usage", h.handleTenantUsage)
-	mux.HandleFunc("GET /api/v1/tenants/{name}", h.handleGetTenant)
-	mux.HandleFunc("GET /api/v1/fairness", h.handleFairness)
-	mux.HandleFunc("GET /api/v1/fairness/impact/{service}", h.handleFairnessImpact)
+	mux.HandleFunc("/api/v1/tenants/{name}/usage", h.handleTenantUsage)
+	mux.HandleFunc("/api/v1/tenants/{name}", h.handleGetTenant)
+	mux.HandleFunc("/api/v1/tenants", h.handleListTenants)
+	mux.HandleFunc("/api/v1/fairness/impact/{service}", h.handleFairnessImpact)
+	mux.HandleFunc("/api/v1/fairness", h.handleFairness)
 }
 
 // ── Response types ────────────────────────────────────────────────────────────

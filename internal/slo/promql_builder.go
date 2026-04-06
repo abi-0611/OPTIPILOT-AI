@@ -2,6 +2,7 @@ package slo
 
 import (
 	"fmt"
+	"strings"
 
 	slov1alpha1 "github.com/optipilot-ai/optipilot/api/slo/v1alpha1"
 )
@@ -55,13 +56,16 @@ func NewPromQLBuilderFromAnnotations(annotations map[string]string, deploymentNa
 }
 
 // BuildQuery generates a PromQL expression for the given metric type and window.
-// For custom metrics pass an empty window — the query is returned as-is from customQuery.
+// A non-empty customQuery overrides the built-in template for any metric type.
 func (b *PromQLBuilder) BuildQuery(metric slov1alpha1.MetricType, window string, customQuery string) (string, error) {
+	if trimmed := strings.TrimSpace(customQuery); trimmed != "" {
+		return trimmed, nil
+	}
+
 	if metric == slov1alpha1.MetricCustom {
-		if customQuery == "" {
+		if strings.TrimSpace(customQuery) == "" {
 			return "", fmt.Errorf("custom metric requires a non-empty customQuery")
 		}
-		return customQuery, nil
 	}
 
 	tmpl, ok := queryTemplates[metric]

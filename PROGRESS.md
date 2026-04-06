@@ -1,5 +1,18 @@
 ﻿# OptiPilot AI — PROGRESS.md
 
+## Current Setup Note
+- The local quickstart path now works from a fresh clone with `./hack/quickstart.sh --build-local`.
+- Helm dependency aliases are wired for `clusterAgent` and `mlService`, and chart `nameOverride` keeps the rendered resource names on `cluster-agent` / `ml-service`.
+- The quickstart now exposes Prometheus at `http://localhost:9090` and the OptiPilot API at `http://localhost:8090/api/v1/decisions`; root `/` returns 404 in the local build because the UI bundle is not embedded.
+- CodePro's SLO example now carries `app: codepro-api` on the ServiceObjective so the `OptimizationPolicy.selector` matches correctly.
+- Optimizer right-sizing logic now derives per-replica CPU and memory recommendations from live Prometheus usage, and tune actions now include memory changes as well as CPU changes.
+- CodePro manifests now include `codepro-main-site-slo` / `codepro-main-site-policy` and `codepro-admin-frontend-slo` / `codepro-admin-frontend-policy`; the frontend SLOs use deployment availability only after the earlier custom CPU-headroom objective returned no Prometheus data in-cluster.
+- Focused validation passed: `internal/controller` helper tests and `internal/engine` solver tests passed after the right-sizing changes.
+- Added a follow-up solver fix so spot-only candidate differences resolve to `no_action` rather than unsupported no-op `tune` actuations; focused solver tests pass for that case.
+- Rebuilt `optipilot-manager:quickstart`, loaded it into the running kind cluster, and rolled `optipilot-cluster-agent` successfully.
+- Live validation now shows `api` recovered from the migration/DNS outage and scaled from 1 to 3 replicas under OptiPilot control, while `main-site` and `admin-frontend` are both healthy with compliant ServiceObjectives.
+- `codepro-api-slo` now evaluates as concrete `False` rather than `Unknown`, which is the correct state while latency remains above target and allows the optimizer to issue real scale-up decisions.
+
 ## Phase 1 — Scaffold & Core CRDs ✅ COMPLETE
 - Go module `github.com/optipilot-ai/optipilot` (go 1.22)
 - 3 CRDs: ServiceObjective, OptimizationPolicy, TenantProfile
@@ -495,3 +508,37 @@
 - **157 new tests** (22 + 44 + 19 + 38 + 29 + 5)
 - **Cumulative: 767 tests (611 Go + 25 React + 131 Python)**
 - Phase 11 ✅ COMPLETE
+
+---
+
+## Live Vertical Tuning Proof — End-to-End Validation ✅
+
+### Summary
+Vertical scaling (right-sizing CPU/memory requests) fully proven in a live kind cluster with real Prometheus metrics. The OptiPilot controller autonomously reads actual resource usage, computes right-sized requests with headroom, issues `tune` actions, and patches Deployment specs — causing pods to roll out with optimized resources.
+
+### Tune Actions Observed (from Kubernetes events + controller logs)
+
+| Deployment | Action | CPU Request | Memory Request | Score |
+|---|---|---|---|---|
+| admin-frontend | **tune** | 100m → **10m** (90% reduction) | 128Mi → **43Mi** (66% reduction) | 1.000 |
+| api | **tune** | 100m → **27m** (73% reduction) | 256Mi → **410Mi** (usage-driven increase) | 1.000 |
+| main-site | **tune** | 14m → **18m** (fine-tuning) | 128Mi → **57Mi** (53% reduction) | 1.000 |
+
+### SLO Compliance After Tuning
+| SLO | Budget | Compliant |
+|---|---|---|
+| codepro-admin-frontend-slo | 100.00% | True ✅ |
+| codepro-main-site-slo | 100.00% | True ✅ |
+| codepro-api-slo | 66.18% | False (recovering from Docker disruption) |
+
+### Key Evidence
+- `kubectl get events -n codepro --field-selector reason=Actuated` → `tune applied (1 changes)` for admin-frontend and api
+- `kubectl get events -n codepro --field-selector reason=OptimizationDecision` → full decision audit trail
+- Controller logs: `optimization decision {"namespace": "codepro", "service": "main-site", "action": "tune", ...}` → `tune applied (1 changes)`
+- Deployment specs verified via `kubectl get deploy -o jsonpath` — resource requests actually changed
+
+### Code Changes That Enabled This
+1. **Resource-aware cost estimation** (`candidates.go`): `planResourceShare()` + `estimateCost()` scales cost by CPU/memory share so smaller requests win economically
+2. **Memory-aware dedup** (`candidates.go`): `candidateKey` includes `MemoryRequest` preventing memory-only variants from being collapsed
+3. **Spot-only no-op fix** (`solver.go`): `buildAction()` resolves spot-only diffs to `no_action` instead of unsupported no-op `tune`
+4. **Degraded SLO scoring** (`scorer.go`): `scoreDegradedSLO()` favors scale-up when SLO is violated, tune when compliant

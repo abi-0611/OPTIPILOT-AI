@@ -54,11 +54,11 @@ func (h *DecisionsAPIHandler) WithNarrator(n DecisionNarrator) *DecisionsAPIHand
 // RegisterRoutes registers decision-related routes on the given mux.
 // These routes augment (not replace) the base routes in explainability.APIHandler.
 func (h *DecisionsAPIHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/decisions", h.handleListDecisions)
-	mux.HandleFunc("GET /api/v1/decisions/summary", h.handleSummary)
-	mux.HandleFunc("GET /api/v1/decisions/search", h.handleSearch)
-	mux.HandleFunc("GET /api/v1/decisions/{id}", h.handleGetDecision)
-	mux.HandleFunc("GET /api/v1/decisions/{id}/explain", h.handleExplain)
+	mux.HandleFunc("/api/v1/decisions/summary", h.handleSummary)
+	mux.HandleFunc("/api/v1/decisions/search", h.handleSearch)
+	mux.HandleFunc("/api/v1/decisions/{id}/explain", h.handleExplain)
+	mux.HandleFunc("/api/v1/decisions/{id}", h.handleGetDecision)
+	mux.HandleFunc("/api/v1/decisions", h.handleListDecisions)
 }
 
 // handleListDecisions handles GET /api/v1/decisions?namespace=X&service=Y&trigger=Z&since=T&limit=N
