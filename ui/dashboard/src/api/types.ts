@@ -69,6 +69,12 @@ export interface SLOStatus {
 
 // -- Decision types ------------------------------------------------------------
 // Matches JSON from internal/engine.DecisionRecord (camelCase).
+/** Observed workload state at decision time (JSON may use replicas or Replicas). */
+export interface CurrentStateSnapshot {
+  replicas?: number;
+  Replicas?: number;
+}
+
 export interface DecisionRecord {
   id: string;
   timestamp: string;
@@ -78,8 +84,10 @@ export interface DecisionRecord {
   actionType: string;
   dryRun: boolean;
   confidence: number;
+  currentState?: CurrentStateSnapshot;
   sloStatus?: SLOStatus;
-  candidates?: CandidatePlan[];
+  /** Optimizer-evaluated options; each item has a nested `plan` from the engine. */
+  candidates?: ScoredCandidate[];
   selectedAction?: ScalingAction;
   objectiveWeights?: Record<string, number>;
 }
@@ -91,6 +99,17 @@ export interface CandidatePlan {
   spot_ratio: number;
   estimated_cost: number;
   estimated_carbon: number;
+}
+
+/** Matches engine.ScoredCandidate JSON (`plan` holds replica/cost). */
+export interface ScoredCandidate {
+  plan: {
+    replicas: number;
+    estimated_cost?: number;
+    estimated_carbon?: number;
+    /** Some builds may omit json tags on nested cel types. */
+    EstimatedCost?: number;
+  };
 }
 
 export interface ScalingAction {

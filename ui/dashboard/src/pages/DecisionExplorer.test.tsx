@@ -7,11 +7,11 @@ import DecisionExplorer from "./DecisionExplorer";
 
 const { mockDecisions } = vi.hoisted(() => ({
   mockDecisions: [
-    { id: "d1", timestamp: "2026-01-01T12:00:00Z", service: "api-gateway", trigger: "slo_breach", actionType: "scale_up", confidence: 0.92, dryRun: false },
-    { id: "d2", timestamp: "2026-01-01T11:00:00Z", service: "payment-service", trigger: "forecast", actionType: "no_action", confidence: 0.78, dryRun: false },
-    { id: "d3", timestamp: "2026-01-01T10:00:00Z", service: "worker", trigger: "rollback", actionType: "scale_down", confidence: 0.85, dryRun: false },
-    { id: "d4", timestamp: "2026-01-01T09:00:00Z", service: "inventory", trigger: "slo_breach", actionType: "tune", confidence: 0.71, dryRun: true },
-    { id: "d5", timestamp: "2026-01-01T08:00:00Z", service: "analytics", trigger: "scale", actionType: "scale_up", confidence: 0.94, dryRun: false },
+    { id: "d1", namespace: "ns", timestamp: "2026-01-01T12:00:00Z", service: "api-gateway", trigger: "slo_breach", actionType: "scale_up", confidence: 0.92, dryRun: false, currentState: { replicas: 2 }, selectedAction: { type: "scale_up", targetReplica: 3, cpuRequest: "0.5", memoryRequest: "1Gi", spotRatio: 0, dryRun: false, reason: "test", confidence: 0.92 } },
+    { id: "d2", namespace: "ns", timestamp: "2026-01-01T11:00:00Z", service: "payment-service", trigger: "forecast", actionType: "no_action", confidence: 0.78, dryRun: false },
+    { id: "d3", namespace: "ns", timestamp: "2026-01-01T10:00:00Z", service: "worker", trigger: "rollback", actionType: "scale_down", confidence: 0.85, dryRun: false, currentState: { replicas: 4 }, selectedAction: { type: "scale_down", targetReplica: 2, cpuRequest: "0.5", memoryRequest: "1Gi", spotRatio: 0, dryRun: false, reason: "test", confidence: 0.85 } },
+    { id: "d4", namespace: "ns", timestamp: "2026-01-01T09:00:00Z", service: "inventory", trigger: "slo_breach", actionType: "tune", confidence: 0.71, dryRun: true },
+    { id: "d5", namespace: "ns", timestamp: "2026-01-01T08:00:00Z", service: "analytics", trigger: "scale", actionType: "scale_up", confidence: 0.94, dryRun: false },
   ],
 }));
 

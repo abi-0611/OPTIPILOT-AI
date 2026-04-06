@@ -26,7 +26,7 @@ export const useFairness = () =>
 
 // -- Decision hooks ------------------------------------------------------------
 export const useDecisions = (params?: { service?: string; namespace?: string; trigger?: string; limit?: number }) =>
-  useQuery({ queryKey: ["decisions", params], queryFn: () => api.decisions.list(params), refetchInterval: 10_000 });
+  useQuery({ queryKey: ["decisions", params], queryFn: () => api.decisions.list(params), refetchInterval: 5_000 });
 
 export const useDecision = (id: string) =>
   useQuery({ queryKey: ["decisions", id], queryFn: () => api.decisions.get(id), enabled: !!id });

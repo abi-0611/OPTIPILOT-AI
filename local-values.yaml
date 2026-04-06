@@ -1,5 +1,6 @@
+# Must match kube-prometheus-stack service name (see: kubectl -n monitoring get svc).
 global:
-  prometheusURL: "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090"
+  prometheusURL: "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
 
 clusterAgent:
   enabled: true

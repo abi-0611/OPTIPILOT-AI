@@ -1,19 +1,8 @@
 import { useState } from "react";
 import { useDecisions, useDecisionExplain } from "@/api/hooks";
+import type { DecisionRecord } from "@/api/types";
+import { formatScalingSummary } from "@/lib/utils";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
-
-type DecisionEntry = {
-  id: string;
-  timestamp: string;
-  service: string;
-  trigger: string;
-  actionType: string;
-  confidence: number;
-  dryRun: boolean;
-  narrative?: string;
-  weights?: Record<string, number> | null;
-  candidates?: { replicas: number; estimatedCost: number }[] | null;
-};
 
 export default function DecisionExplorer() {
   const [search, setSearch] = useState("");
@@ -21,7 +10,7 @@ export default function DecisionExplorer() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const decisions = useDecisions({ trigger: trigger || undefined, limit: 50 });
-  const data = (decisions.data as DecisionEntry[] | undefined) ?? [];
+  const data = decisions.data ?? [];
   const filtered = search ? data.filter(d => d.service.includes(search) || d.trigger.includes(search)) : data;
 
   return (
@@ -90,7 +79,7 @@ export default function DecisionExplorer() {
   );
 }
 
-function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; expanded: boolean; onToggle: () => void }) {
+function DecisionCard({ record, expanded, onToggle }: { record: DecisionRecord; expanded: boolean; onToggle: () => void }) {
   const explain = useDecisionExplain(expanded ? record.id : "");
 
   const actionColor: Record<string, string> = {
@@ -119,6 +108,9 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; e
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em", minWidth: "88px", textAlign: "right" as const }}>
           {(record.actionType ?? "").replace(/_/g, " ") || "—"}
         </span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--color-text-muted)", minWidth: "120px", textAlign: "right" as const }}>
+          {formatScalingSummary(record) ?? "—"}
+        </span>
         <ConfPct value={record.confidence} />
         {record.dryRun && <DryCapsule />}
       </div>
@@ -132,7 +124,7 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; e
             {explain.isLoading
               ? <div style={monoText}>Loading explanation...</div>
               : <div style={{ fontSize: "13px", color: "var(--color-text-secondary)", lineHeight: 1.6, fontFamily: "var(--font-body)" }}>
-                  {explain.data?.narrative ?? record.narrative}
+                  {explain.data?.narrative ?? record.selectedAction?.reason}
                 </div>
             }
           </div>
@@ -141,22 +133,25 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; e
           <div style={{ marginBottom: "12px" }}>
             <Label text="Objective Weights" />
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" as const }}>
-              {Object.entries(record.weights ?? {}).map(([k, v]) => (
+              {Object.entries(record.objectiveWeights ?? {}).map(([k, v]) => (
                 <WeightPill key={k} name={k} value={v as number} />
               ))}
             </div>
           </div>
 
           {/* Candidates mini-table */}
-          {record.candidates && (
+          {record.candidates && record.candidates.length > 0 && (
             <div>
               <Label text={`Candidates (${record.candidates.length})`} />
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" as const }}>
-                {record.candidates.map((c, i) => (
+                {record.candidates.map((c, i) => {
+                  const cost = c.plan.estimated_cost ?? c.plan.EstimatedCost;
+                  return (
                   <div key={i} style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--color-text-muted)", background: "var(--color-bg-overlay)", padding: "4px 8px", borderRadius: "4px" }}>
-                    {c.replicas}r � ${c.estimatedCost}/h
+                    {c.plan.replicas} rep · est ${cost !== undefined ? cost.toFixed(2) : "—"}/h
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
