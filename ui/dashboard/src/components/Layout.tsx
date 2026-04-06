@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { Activity, Users, BookOpen, FlaskConical, Cpu } from "lucide-react";
+import { useMeta } from "@/api/hooks";
 
 const NAV = [
   { to: "/", label: "SLO Overview", icon: Activity },
@@ -9,6 +10,10 @@ const NAV = [
 ];
 
 export default function Layout() {
+  const meta = useMeta();
+  const cluster = meta.data?.cluster_name ?? (meta.isLoading ? "…" : "unknown");
+  const apiOk = meta.isSuccess;
+
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--color-bg-base)" }}>
       {/* Sidebar */}
@@ -43,14 +48,18 @@ export default function Layout() {
         {/* Cluster selector */}
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border-subtle)" }}>
           <div style={{ fontSize: "10px", color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>Cluster</div>
-          <select style={{
-            width: "100%", background: "var(--color-bg-elevated)",
-            border: "1px solid var(--color-border-default)",
-            color: "var(--color-text-secondary)", borderRadius: "6px",
-            padding: "6px 8px", fontSize: "12px", fontFamily: "var(--font-mono)", outline: "none",
-          }}>
-            <option>production-us-east-1</option>
-            <option>staging-us-west-2</option>
+          <select
+            disabled
+            value={cluster}
+            style={{
+              width: "100%", background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-border-default)",
+              color: "var(--color-text-secondary)", borderRadius: "6px",
+              padding: "6px 8px", fontSize: "12px", fontFamily: "var(--font-mono)", outline: "none",
+              opacity: 0.95,
+            }}
+          >
+            <option value={cluster}>{cluster}</option>
           </select>
         </div>
 
@@ -98,8 +107,7 @@ export default function Layout() {
           gap: "12px",
         }}>
           <div style={{ flex: 1 }} />
-          <StatusPill label="API" ok />
-          <StatusPill label="ML" ok />
+          <StatusPill label="API" ok={apiOk} />
         </header>
 
         {/* Page content */}

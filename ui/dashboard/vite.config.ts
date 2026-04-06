@@ -13,7 +13,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8080',
+      // Cluster-agent REST API (--api-addr default :8090); :8080 is controller metrics only.
+      '/api': 'http://localhost:8090',
     },
   },
 })

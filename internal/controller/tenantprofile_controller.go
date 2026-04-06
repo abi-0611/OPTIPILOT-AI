@@ -10,12 +10,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	tenantv1alpha1 "github.com/optipilot-ai/optipilot/api/tenant/v1alpha1"
+	"github.com/optipilot-ai/optipilot/internal/tenant"
 )
 
 // TenantProfileReconciler reconciles a TenantProfile object
 type TenantProfileReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// TenantManager receives a full sync of all TenantProfile CRs on each reconcile.
+	// When nil (e.g. in envtest without wiring), Reconcile falls back to logging only.
+	TenantManager *tenant.Manager
 }
 
 // +kubebuilder:rbac:groups=tenant.optipilot.ai,resources=tenantprofiles,verbs=get;list;watch;create;update;patch;delete
@@ -26,6 +30,18 @@ type TenantProfileReconciler struct {
 func (r *TenantProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	if r.TenantManager != nil {
+		var list tenantv1alpha1.TenantProfileList
+		if err := r.List(ctx, &list); err != nil {
+			return ctrl.Result{}, err
+		}
+		profiles := make([]tenantv1alpha1.TenantProfile, len(list.Items))
+		copy(profiles, list.Items)
+		r.TenantManager.UpdateProfiles(profiles)
+		logger.Info("synced TenantProfiles to tenant manager", "count", len(profiles))
+		return ctrl.Result{}, nil
+	}
+
 	var tp tenantv1alpha1.TenantProfile
 	if err := r.Get(ctx, req.NamespacedName, &tp); err != nil {
 		if errors.IsNotFound(err) {
@@ -35,8 +51,6 @@ func (r *TenantProfileReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	logger.Info("Reconciling TenantProfile", "name", tp.Name)
-
-	// Phase 7 will implement tenant fair-share quota enforcement here.
 
 	return ctrl.Result{}, nil
 }

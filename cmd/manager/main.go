@@ -26,6 +26,7 @@ import (
 	"github.com/optipilot-ai/optipilot/internal/metrics"
 	"github.com/optipilot-ai/optipilot/internal/simulator"
 	"github.com/optipilot-ai/optipilot/internal/slo"
+	"github.com/optipilot-ai/optipilot/internal/tenant"
 )
 
 var (
@@ -103,6 +104,7 @@ func main() {
 	}
 
 	promClient := metrics.NewHTTPPrometheusClient(prometheusURL, 10*time.Second, 5*time.Second)
+	tenantMgr := tenant.NewManager(promClient)
 
 	if err = (&controller.ServiceObjectiveReconciler{
 		Client: mgr.GetClient(),
@@ -134,8 +136,9 @@ func main() {
 	}
 
 	if err = (&controller.TenantProfileReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		TenantManager:   tenantMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TenantProfile")
 		os.Exit(1)
@@ -176,6 +179,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := mgr.Add(tenantMgr); err != nil {
+		setupLog.Error(err, "unable to register tenant manager")
+		os.Exit(1)
+	}
+
 	// Create signal context once — reused by both the API server and the manager.
 	// ctrl.SetupSignalHandler must only be called once per process.
 	ctx := ctrl.SetupSignalHandler()
@@ -194,10 +202,16 @@ func main() {
 	})
 	whatIfHandler := api.NewWhatIfAPIHandler(nil, nil, whatIfSolverFunc, curveFactory)
 
-	// TenantAPI handler — manager and detector are not wired in quickstart build.
-	tenantHandler := api.NewTenantAPIHandler(nil, promClient, nil)
+	tenantHandler := api.NewTenantAPIHandler(tenantMgr, promClient, nil)
 
-	apiServer := api.NewServer(apiAddr, dashboardFS, decisionsHandler, whatIfHandler, tenantHandler)
+	displayCluster := clusterName
+	if displayCluster == "" {
+		displayCluster = "local"
+	}
+	metaHandler := api.NewMetaHandler(displayCluster)
+	serviceObjectivesHandler := api.NewServiceObjectivesHandler(mgr.GetClient())
+
+	apiServer := api.NewServer(apiAddr, dashboardFS, decisionsHandler, whatIfHandler, tenantHandler, serviceObjectivesHandler, metaHandler)
 	go func() {
 		setupLog.Info("starting API server", "addr", apiAddr)
 		if err := apiServer.Start(ctx); err != nil {

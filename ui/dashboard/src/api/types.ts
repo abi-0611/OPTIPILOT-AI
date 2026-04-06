@@ -33,6 +33,29 @@ export interface UsageResponse {
   time_series?: Array<{ timestamp: string; value: number }>;
 }
 
+// -- GET /api/v1/meta ---------------------------------------------------------
+export interface MetaResponse {
+  cluster_name: string;
+}
+
+// -- GET /api/v1/service-objectives -------------------------------------------
+export interface ServiceObjectiveSummary {
+  namespace: string;
+  name: string;
+  targetName: string;
+  targetKind: string;
+  /** Present when SLOCompliant condition is True/False. */
+  compliant?: boolean;
+  budgetRemainingPercent?: number;
+  lastEvaluation?: string;
+  objectives: Array<{
+    metric: string;
+    target: string;
+    window?: string;
+    burnRate?: number | null;
+  }>;
+}
+
 // -- SLO Status types ---------------------------------------------------------
 export interface SLOStatus {
   compliant: boolean;
@@ -45,19 +68,20 @@ export interface SLOStatus {
 }
 
 // -- Decision types ------------------------------------------------------------
+// Matches JSON from internal/engine.DecisionRecord (camelCase).
 export interface DecisionRecord {
   id: string;
   timestamp: string;
   namespace: string;
   service: string;
   trigger: string;
-  action_type: string;
-  dry_run: boolean;
+  actionType: string;
+  dryRun: boolean;
   confidence: number;
-  slo_status?: SLOStatus;
+  sloStatus?: SLOStatus;
   candidates?: CandidatePlan[];
-  selected_action?: ScalingAction;
-  objective_weights?: Record<string, number>;
+  selectedAction?: ScalingAction;
+  objectiveWeights?: Record<string, number>;
 }
 
 export interface CandidatePlan {
@@ -71,11 +95,11 @@ export interface CandidatePlan {
 
 export interface ScalingAction {
   type: string;
-  target_replica: number;
-  cpu_request: string;
-  memory_request: string;
-  spot_ratio: number;
-  dry_run: boolean;
+  targetReplica: number;
+  cpuRequest: string;
+  memoryRequest: string;
+  spotRatio: number;
+  dryRun: boolean;
   reason: string;
   confidence: number;
 }

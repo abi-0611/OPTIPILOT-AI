@@ -7,6 +7,34 @@ import SLOOverview from './SLOOverview'
 vi.mock('@/api/hooks', () => ({
   useDecisionSummary: () => ({ data: undefined, isLoading: false }),
   useDecisions: () => ({ data: undefined, isLoading: false }),
+  useServiceObjectives: () => ({
+    data: [
+      {
+        namespace: 'demo',
+        name: 'api-slo',
+        targetName: 'api-gateway',
+        targetKind: 'Deployment',
+        compliant: true,
+        budgetRemainingPercent: 88,
+        objectives: [
+          { metric: 'availability', target: '99.9%', burnRate: 0.5 },
+          { metric: 'latency_p99', target: '500ms', burnRate: 2 },
+        ],
+      },
+      {
+        namespace: 'demo',
+        name: 'pay-slo',
+        targetName: 'payment-service',
+        targetKind: 'Deployment',
+        objectives: [
+          { metric: 'availability', target: '99%', burnRate: 0.2 },
+          { metric: 'latency_p99', target: '1s', burnRate: 0.8 },
+        ],
+      },
+    ],
+    isLoading: false,
+    isError: false,
+  }),
 }))
 
 describe('SLOOverview', () => {
@@ -38,12 +66,10 @@ describe('SLOOverview', () => {
     expect(screen.getByRole('columnheader', { name: 'latency_p99' })).toBeInTheDocument()
   })
 
-  it('renders Recent Decisions section with mock data', () => {
+  it('renders Recent Decisions section with empty state when journal is empty', () => {
     renderWithProviders(<SLOOverview />)
     expect(screen.getByText(/recent decisions/i)).toBeInTheDocument()
-    // MOCK_DECISIONS has api-gateway as first entry (appears in both heatmap and decisions)
-    const entries = screen.getAllByText('api-gateway')
-    expect(entries.length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/no decisions recorded yet/i)).toBeInTheDocument()
   })
 
   it('has no serious or critical accessibility violations', async () => {

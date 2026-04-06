@@ -141,6 +141,10 @@ func stateToSummary(s *tenant.TenantState, noisy, victim bool) tenantSummaryResp
 
 // handleListTenants handles GET /api/v1/tenants
 func (h *TenantAPIHandler) handleListTenants(w http.ResponseWriter, _ *http.Request) {
+	if h.manager == nil {
+		writeJSON(w, []tenantSummaryResponse{})
+		return
+	}
 	all := h.manager.GetAllStates()
 	result := make([]tenantSummaryResponse, 0, len(all))
 	for _, s := range all {
@@ -151,6 +155,10 @@ func (h *TenantAPIHandler) handleListTenants(w http.ResponseWriter, _ *http.Requ
 
 // handleGetTenant handles GET /api/v1/tenants/{name}
 func (h *TenantAPIHandler) handleGetTenant(w http.ResponseWriter, r *http.Request) {
+	if h.manager == nil {
+		http.Error(w, "tenant manager not configured", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 	s := h.manager.GetState(name)
 	if s == nil {
@@ -177,6 +185,10 @@ func (h *TenantAPIHandler) handleGetTenant(w http.ResponseWriter, r *http.Reques
 // Returns time-series CPU + memory usage for the last hour (5-min steps).
 // Falls back to a single current-state point if Prometheus is unavailable.
 func (h *TenantAPIHandler) handleTenantUsage(w http.ResponseWriter, r *http.Request) {
+	if h.manager == nil {
+		http.Error(w, "tenant manager not configured", http.StatusServiceUnavailable)
+		return
+	}
 	name := r.PathValue("name")
 	s := h.manager.GetState(name)
 	if s == nil {
@@ -235,6 +247,13 @@ func (h *TenantAPIHandler) handleTenantUsage(w http.ResponseWriter, r *http.Requ
 // handleFairness handles GET /api/v1/fairness
 // Returns the current Jain's fairness index computed from live tenant states.
 func (h *TenantAPIHandler) handleFairness(w http.ResponseWriter, _ *http.Request) {
+	if h.manager == nil {
+		writeJSON(w, fairnessResponse{
+			Timestamp: time.Now().UTC(),
+			PerTenant: map[string]float64{},
+		})
+		return
+	}
 	all := h.manager.GetAllStates()
 	inputs := make([]tenant.FairnessInput, 0, len(all))
 	for _, s := range all {
@@ -261,6 +280,10 @@ func (h *TenantAPIHandler) handleFairness(w http.ResponseWriter, _ *http.Request
 // Query params: tenant=<name>&delta_cores=<float>
 // Simulates how adding delta_cores to the specified tenant changes the fairness index.
 func (h *TenantAPIHandler) handleFairnessImpact(w http.ResponseWriter, r *http.Request) {
+	if h.manager == nil {
+		http.Error(w, "tenant manager not configured", http.StatusServiceUnavailable)
+		return
+	}
 	service := r.PathValue("service")
 
 	tenantName := r.URL.Query().Get("tenant")

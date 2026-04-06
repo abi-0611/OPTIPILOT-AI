@@ -1,11 +1,12 @@
 import { useTenants, useFairness } from "@/api/hooks";
+import type { TenantState } from "@/api/types";
 import { AlertTriangle } from "lucide-react";
 
 export default function FairnessDashboard() {
   const tenants = useTenants();
   const fairness = useFairness();
 
-  const data = tenants.data ?? MOCK_TENANTS;
+  const data: TenantState[] = tenants.data ?? [];
   const noisyTenants = data.filter(t => t.is_noisy);
   const victimTenants = data.filter(t => t.is_victim);
 
@@ -13,8 +14,16 @@ export default function FairnessDashboard() {
     <div>
       <div style={{ marginBottom: "24px" }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: "24px", fontWeight: 700, color: "var(--color-text-primary)", margin: 0, letterSpacing: "-0.02em" }}>Fairness Dashboard</h1>
-        <p style={{ color: "var(--color-text-muted)", fontSize: "13px", margin: "4px 0 0" }}>Tenant resource allocation and Jain''s fairness index</p>
+        <p style={{ color: "var(--color-text-muted)", fontSize: "13px", margin: "4px 0 0" }}>
+          Tenant resource allocation and Jain&apos;s fairness index (requires TenantProfile CRs + tenant manager; quickstart often has no tenants)
+        </p>
       </div>
+
+      {tenants.isError && (
+        <div style={{ marginBottom: "12px", padding: "10px 12px", borderRadius: "8px", background: "rgba(244,63,94,0.08)", border: "1px solid rgba(244,63,94,0.3)", color: "var(--color-rose)", fontSize: "13px" }}>
+          {(tenants.error as Error).message}
+        </div>
+      )}
 
       {/* Noisy-neighbor banners */}
       {noisyTenants.map(t => (
@@ -26,8 +35,12 @@ export default function FairnessDashboard() {
 
       {/* Jain''s index stat */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <StatCard label="Global Fairness Index" value={fairness.data ? fairness.data.global_index.toFixed(3) : "0.841"} accent="cyan" />
-        <StatCard label="Active Tenants" value={String(data.length)} accent="sky" />
+        <StatCard
+          label="Global Fairness Index"
+          value={fairness.isLoading ? "…" : fairness.data ? fairness.data.global_index.toFixed(3) : "—"}
+          accent="cyan"
+        />
+        <StatCard label="Active Tenants" value={tenants.isLoading ? "…" : String(data.length)} accent="sky" />
         <StatCard label="Noisy Alerts" value={String(noisyTenants.length)} accent={noisyTenants.length > 0 ? "amber" : "emerald"} />
       </div>
 
@@ -36,11 +49,19 @@ export default function FairnessDashboard() {
         <div style={{ fontFamily: "var(--font-display)", fontSize: "14px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "16px" }}>
           Resource Allocation — CPU Cores
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          {data.map(t => (
-            <TenantBar key={t.name} tenant={t} />
-          ))}
-        </div>
+        {tenants.isLoading ? (
+          <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>Loading tenants…</div>
+        ) : data.length === 0 ? (
+          <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>
+            No tenant state yet. Configure TenantProfile resources and wire the tenant manager in the cluster-agent to see live allocation here.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {data.map(t => (
+              <TenantBar key={t.name} tenant={t} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Per-tenant fairness scores */}
@@ -49,24 +70,28 @@ export default function FairnessDashboard() {
           Per-Tenant Fairness Scores
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "10px" }}>
-          {data.map(t => {
-            const score = fairness.data?.per_tenant?.[t.name] ?? t.fairness_score;
-            const color = score > 0.9 ? "var(--color-emerald)" : score > 0.7 ? "var(--color-amber)" : "var(--color-rose)";
-            return (
-              <div key={t.name} style={{ background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "12px" }}>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "6px" }}>{t.name}</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 700, color }}>{score.toFixed(3)}</div>
-                <TierBadge tier={t.tier} />
-              </div>
-            );
-          })}
+          {data.length === 0 ? (
+            <span style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>—</span>
+          ) : (
+            data.map(t => {
+              const score = fairness.data?.per_tenant?.[t.name] ?? t.fairness_score;
+              const color = score > 0.9 ? "var(--color-emerald)" : score > 0.7 ? "var(--color-amber)" : "var(--color-rose)";
+              return (
+                <div key={t.name} style={{ background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-subtle)", borderRadius: "8px", padding: "12px" }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "6px" }}>{t.name}</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 700, color }}>{score.toFixed(3)}</div>
+                  <TierBadge tier={t.tier} />
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function TenantBar({ tenant }: { tenant: typeof MOCK_TENANTS[0] }) {
+function TenantBar({ tenant }: { tenant: TenantState }) {
   const guaranteed = (tenant.guaranteed_cores_percent / 100) * (tenant.max_cores || 16);
   const current = tenant.current_cores;
   const max = tenant.max_cores || 16;
@@ -134,10 +159,3 @@ function Banner({ type, message }: { type: "warning" | "error"; message: string 
     </div>
   );
 }
-
-const MOCK_TENANTS = [
-  { name: "team-alpha", tier: "platinum", current_cores: 12.4, max_cores: 16, guaranteed_cores_percent: 50, fairness_score: 0.95, is_noisy: false, is_victim: false, allocation_status: "bursting", current_memory_gib: 24, current_cost_usd: 120, max_memory_gib: 32, max_monthly_cost_usd: 3000, burstable: true, last_refreshed: new Date().toISOString() },
-  { name: "team-beta", tier: "gold", current_cores: 4.1, max_cores: 8, guaranteed_cores_percent: 30, fairness_score: 0.88, is_noisy: true, is_victim: false, allocation_status: "bursting", current_memory_gib: 8, current_cost_usd: 45, max_memory_gib: 16, max_monthly_cost_usd: 1000, burstable: true, last_refreshed: new Date().toISOString() },
-  { name: "team-gamma", tier: "silver", current_cores: 1.2, max_cores: 4, guaranteed_cores_percent: 25, fairness_score: 0.62, is_noisy: false, is_victim: true, allocation_status: "throttled", current_memory_gib: 4, current_cost_usd: 12, max_memory_gib: 8, max_monthly_cost_usd: 400, burstable: false, last_refreshed: new Date().toISOString() },
-  { name: "team-delta", tier: "bronze", current_cores: 2.0, max_cores: 4, guaranteed_cores_percent: 20, fairness_score: 0.79, is_noisy: false, is_victim: false, allocation_status: "guaranteed", current_memory_gib: 4, current_cost_usd: 20, max_memory_gib: 8, max_monthly_cost_usd: 400, burstable: true, last_refreshed: new Date().toISOString() },
-];

@@ -7,10 +7,10 @@ type DecisionEntry = {
   timestamp: string;
   service: string;
   trigger: string;
-  action_type: string;
+  actionType: string;
   confidence: number;
-  dry_run: boolean;
-  narrative: string;
+  dryRun: boolean;
+  narrative?: string;
   weights?: Record<string, number> | null;
   candidates?: { replicas: number; estimatedCost: number }[] | null;
 };
@@ -21,7 +21,7 @@ export default function DecisionExplorer() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const decisions = useDecisions({ trigger: trigger || undefined, limit: 50 });
-  const data = (decisions.data as DecisionEntry[] | undefined) ?? MOCK_DECISIONS;
+  const data = (decisions.data as DecisionEntry[] | undefined) ?? [];
   const filtered = search ? data.filter(d => d.service.includes(search) || d.trigger.includes(search)) : data;
 
   return (
@@ -62,11 +62,21 @@ export default function DecisionExplorer() {
 
       {/* Count */}
       <div style={{ fontSize: "12px", color: "var(--color-text-muted)", fontFamily: "var(--font-mono)", marginBottom: "10px" }}>
-        {filtered.length} decision{filtered.length !== 1 ? "s" : ""}
+        {decisions.isLoading ? "…" : `${filtered.length} decision${filtered.length !== 1 ? "s" : ""}`}
       </div>
+
+      {decisions.isError && (
+        <div style={{ marginBottom: "12px", color: "var(--color-rose)", fontSize: "13px" }}>{(decisions.error as Error).message}</div>
+      )}
 
       {/* Timeline */}
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        {decisions.isLoading && <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>Loading decisions…</div>}
+        {!decisions.isLoading && !decisions.isError && filtered.length === 0 && (
+          <div style={{ color: "var(--color-text-muted)", fontSize: "13px", padding: "16px 0" }}>
+            No decisions in the journal yet. The optimizer will record actions here as it runs.
+          </div>
+        )}
         {filtered.map((d, i) => (
           <DecisionCard
             key={d.id ?? i}
@@ -87,7 +97,7 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; e
     scale_up: "var(--color-cyan-glow)", scale_down: "var(--color-amber)",
     no_action: "var(--color-text-muted)", tune: "var(--color-sky)",
   };
-  const color = actionColor[record.action_type] ?? "var(--color-text-secondary)";
+  const color = actionColor[record.actionType] ?? "var(--color-text-secondary)";
 
   return (
     <div style={{
@@ -107,10 +117,10 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionEntry; e
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--color-text-secondary)", flex: 1 }}>{record.service}</span>
         <span style={{ fontSize: "12px", color: "var(--color-text-muted)", minWidth: "80px" }}>{record.trigger}</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em", minWidth: "88px", textAlign: "right" as const }}>
-          {record.action_type.replace("_", " ")}
+          {(record.actionType ?? "").replace(/_/g, " ") || "—"}
         </span>
         <ConfPct value={record.confidence} />
-        {record.dry_run && <DryCapsule />}
+        {record.dryRun && <DryCapsule />}
       </div>
 
       {/* Expanded detail */}
@@ -185,11 +195,3 @@ function WeightPill({ name, value }: { name: string; value: number }) {
 }
 
 const monoText: React.CSSProperties = { fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--color-text-muted)" };
-
-const MOCK_DECISIONS = [
-  { id: "d-001", timestamp: new Date().toISOString(), service: "api-gateway", trigger: "slo_breach", action_type: "scale_up", confidence: 0.92, dry_run: false, narrative: "At 14:32 UTC, api-gateway was scaled from 3?5 replicas due to SLO breach. Burn rate 2.4� (budget: 18% remaining). Forecasted +34% RPS in next 15 min with 87% confidence. Selected plan: 5 replicas at $1.80/h (spot 60%). Confidence: 92%.", weights: { slo: 0.5, cost: 0.3, carbon: 0.1, fairness: 0.1 }, candidates: [{ replicas: 4, estimatedCost: 1.44 }, { replicas: 5, estimatedCost: 1.80 }, { replicas: 6, estimatedCost: 2.16 }] },
-  { id: "d-002", timestamp: new Date(Date.now() - 5 * 60000).toISOString(), service: "payment-service", trigger: "forecast", action_type: "no_action", confidence: 0.78, dry_run: false, narrative: "SLO compliant (budget 72% remaining, burn rate 0.6�). No traffic surge forecasted. Current 4 replicas sufficient. No action taken.", weights: { slo: 0.4, cost: 0.4, carbon: 0.1, fairness: 0.1 }, candidates: null },
-  { id: "d-003", timestamp: new Date(Date.now() - 12 * 60000).toISOString(), service: "worker", trigger: "rollback", action_type: "scale_down", confidence: 0.85, dry_run: false, narrative: "Rollback triggered: previous scale-up degraded latency p99 from 180ms?310ms. Reverted to 3 replicas. SLO recovering.", weights: { slo: 0.6, cost: 0.2, carbon: 0.1, fairness: 0.1 }, candidates: [{ replicas: 3, estimatedCost: 1.08 }, { replicas: 4, estimatedCost: 1.44 }] },
-  { id: "d-004", timestamp: new Date(Date.now() - 20 * 60000).toISOString(), service: "inventory", trigger: "slo_breach", action_type: "tune", confidence: 0.71, dry_run: true, narrative: "(DRY RUN) Would tune connection pool from 50?80 and GC threshold from 512?768MiB. Projected latency improvement: -22ms p99.", weights: { slo: 0.3, cost: 0.4, carbon: 0.2, fairness: 0.1 }, candidates: null },
-  { id: "d-005", timestamp: new Date(Date.now() - 35 * 60000).toISOString(), service: "analytics", trigger: "scale", action_type: "scale_up", confidence: 0.94, dry_run: false, narrative: "Scheduled scale-up for peak analytics window (18:00�20:00 UTC). Pre-warmed 2?4 replicas. Forecast confidence 94%.", weights: { slo: 0.5, cost: 0.3, carbon: 0.1, fairness: 0.1 }, candidates: [{ replicas: 3, estimatedCost: 1.20 }, { replicas: 4, estimatedCost: 1.60 }] },
-];

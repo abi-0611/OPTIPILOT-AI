@@ -2,6 +2,7 @@ import type {
   TenantState, FairnessResponse, UsageResponse,
   DecisionRecord, JournalStats,
   SimulationResult, SLOCostCurveResponse,
+  MetaResponse, ServiceObjectiveSummary,
 } from "./types";
 
 const BASE = "";
@@ -17,6 +18,12 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 
 // -- Tenant API ----------------------------------------------------------------
 export const api = {
+  meta: {
+    get: () => json<MetaResponse>("/api/v1/meta"),
+  },
+  serviceObjectives: {
+    list: () => json<ServiceObjectiveSummary[]>("/api/v1/service-objectives"),
+  },
   tenants: {
     list: () => json<TenantState[]>("/api/v1/tenants"),
     get: (name: string) => json<TenantState>(`/api/v1/tenants/${name}`),

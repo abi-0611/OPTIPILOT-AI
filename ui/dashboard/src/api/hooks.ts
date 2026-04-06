@@ -1,6 +1,16 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "./client";
 
+export const useMeta = () =>
+  useQuery({ queryKey: ["meta"], queryFn: api.meta.get, staleTime: 60_000 });
+
+export const useServiceObjectives = () =>
+  useQuery({
+    queryKey: ["service-objectives"],
+    queryFn: api.serviceObjectives.list,
+    refetchInterval: 15_000,
+  });
+
 // -- Tenant hooks --------------------------------------------------------------
 export const useTenants = () =>
   useQuery({ queryKey: ["tenants"], queryFn: api.tenants.list, refetchInterval: 30_000 });
