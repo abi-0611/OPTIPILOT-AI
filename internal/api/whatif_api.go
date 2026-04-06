@@ -73,6 +73,11 @@ type sloCurveRequestBody struct {
 
 // handleRunSimulation handles POST /api/v1/simulate
 func (h *WhatIfAPIHandler) handleRunSimulation(w http.ResponseWriter, r *http.Request) {
+	if h.history == nil || h.decisions == nil || h.solverFunc == nil {
+		http.Error(w, "what-if simulator is not configured on this cluster-agent", http.StatusServiceUnavailable)
+		return
+	}
+
 	var body simulationRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -140,6 +145,11 @@ func (h *WhatIfAPIHandler) handleGetSimulation(w http.ResponseWriter, r *http.Re
 
 // handleSLOCostCurve handles POST /api/v1/simulate/slo-cost-curve
 func (h *WhatIfAPIHandler) handleSLOCostCurve(w http.ResponseWriter, r *http.Request) {
+	if h.history == nil || h.decisions == nil || h.curveFactory == nil {
+		http.Error(w, "slo-cost curve simulator is not configured on this cluster-agent", http.StatusServiceUnavailable)
+		return
+	}
+
 	var body sloCurveRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)

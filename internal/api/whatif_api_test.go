@@ -116,6 +116,28 @@ func TestWhatIfAPI_RunSimulation(t *testing.T) {
 	}
 }
 
+func TestWhatIfAPI_RunSimulation_Unconfigured(t *testing.T) {
+	h := NewWhatIfAPIHandler(nil, nil, nil, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body := map[string]any{
+		"services": []string{"api-server"},
+		"start":    whatIfStart,
+		"end":      whatIfEnd,
+	}
+	buf, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/v1/simulate", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWhatIfAPI_RunSimulation_MissingServices(t *testing.T) {
 	_, mux := setupWhatIfHandler()
 
@@ -288,6 +310,32 @@ func TestWhatIfAPI_SLOCostCurve(t *testing.T) {
 	}
 	if len(points) != 5 {
 		t.Errorf("expected 5 curve points, got %d", len(points))
+	}
+}
+
+func TestWhatIfAPI_SLOCostCurve_Unconfigured(t *testing.T) {
+	h := NewWhatIfAPIHandler(nil, nil, nil, nil)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	body := map[string]any{
+		"service":    "api-server",
+		"start":      whatIfStart,
+		"end":        whatIfEnd,
+		"slo_metric": "latency_p99",
+		"min_target": 0.050,
+		"max_target": 0.500,
+		"steps":      5,
+	}
+	buf, _ := json.Marshal(body)
+
+	req := httptest.NewRequest("POST", "/api/v1/simulate/slo-cost-curve", bytes.NewReader(buf))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
