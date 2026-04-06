@@ -136,9 +136,9 @@ func main() {
 	}
 
 	if err = (&controller.TenantProfileReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		TenantManager:   tenantMgr,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		TenantManager: tenantMgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TenantProfile")
 		os.Exit(1)
@@ -195,12 +195,46 @@ func main() {
 	// WhatIf handler — use a no-op solver; nil history/decisions means simulations
 	// return empty data but the endpoints are reachable for the demo.
 	whatIfSolverFunc := func(snapshot simulator.SimulationSnapshot) simulator.SimulatedAction {
-		return simulator.SimulatedAction{Replicas: snapshot.Replicas}
+		replicas := int32(1)
+		if snapshot.RequestRate > 300 || snapshot.CPUUsage > 1.0 {
+			replicas = 3
+		} else if snapshot.RequestRate > 120 || snapshot.CPUUsage > 0.6 {
+			replicas = 2
+		}
+		if snapshot.Replicas > 0 && replicas == 1 {
+			replicas = snapshot.Replicas
+		}
+		return simulator.SimulatedAction{
+			Action:      "no_action",
+			Replicas:    replicas,
+			CPUCores:    0.5 * float64(replicas),
+			HourlyCost:  0.12 * float64(replicas),
+			SLOBreached: snapshot.ErrorRate > 0.01 || snapshot.LatencyP99 > 0.5,
+		}
 	}
-	curveFactory := simulator.SLOCurveSolverFactory(func(string, float64) simulator.SolverFunc {
-		return whatIfSolverFunc
+	curveFactory := simulator.SLOCurveSolverFactory(func(metric string, target float64) simulator.SolverFunc {
+		return func(snapshot simulator.SimulationSnapshot) simulator.SimulatedAction {
+			base := whatIfSolverFunc(snapshot)
+			// Tighter targets push to more replicas; looser targets allow fewer.
+			if metric == "availability" {
+				switch {
+				case target >= 0.999:
+					base.Replicas++
+				case target <= 0.992 && base.Replicas > 1:
+					base.Replicas--
+				}
+			}
+			if base.Replicas < 1 {
+				base.Replicas = 1
+			}
+			base.CPUCores = 0.5 * float64(base.Replicas)
+			base.HourlyCost = 0.12 * float64(base.Replicas)
+			return base
+		}
 	})
-	whatIfHandler := api.NewWhatIfAPIHandler(nil, nil, whatIfSolverFunc, curveFactory)
+	historyProvider := &simulator.PrometheusHistoryProvider{Client: promClient}
+	decisionProvider := &simulator.JournalDecisionProvider{Journal: journal}
+	whatIfHandler := api.NewWhatIfAPIHandler(historyProvider, decisionProvider, whatIfSolverFunc, curveFactory)
 
 	tenantHandler := api.NewTenantAPIHandler(tenantMgr, promClient, nil)
 
