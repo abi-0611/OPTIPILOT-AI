@@ -23,6 +23,7 @@ import (
 	"github.com/optipilot-ai/optipilot/internal/cel"
 	"github.com/optipilot-ai/optipilot/internal/engine"
 	"github.com/optipilot-ai/optipilot/internal/explainability"
+	"github.com/optipilot-ai/optipilot/internal/forecaster"
 	prommetrics "github.com/optipilot-ai/optipilot/internal/metrics"
 )
 
@@ -39,6 +40,11 @@ type OptimizerController struct {
 	SafetyGuard *actuator.SafetyGuard      // optional; nil skips safety checks
 	CanaryCtrl  *actuator.CanaryController // optional; nil disables canary
 	PromClient  prommetrics.PrometheusClient
+	Forecaster  *forecaster.Client // optional; nil skips ML but heuristic forecast may still run
+	// Forecast tuning (zero = defaults in attachForecast): shorter lookback/step = more responsive.
+	ForecastLookback  time.Duration
+	ForecastStep      time.Duration
+	ForecastMinPoints int
 }
 
 // Start implements manager.Runnable. It runs the optimization loop until ctx is cancelled.
@@ -100,6 +106,9 @@ func (o *OptimizerController) optimizeService(ctx context.Context, so *slov1alph
 			Policy: p,
 			Key:    key,
 		})
+	}
+	if len(policies) == 0 {
+		logger.Info("no OptimizationPolicy matches this ServiceObjective — create one to control dry-run, constraints, and cooldowns; solver still runs with default weights")
 	}
 
 	// 3. Solve.
@@ -199,8 +208,6 @@ func (o *OptimizerController) actuate(ctx context.Context, so *slov1alpha1.Servi
 }
 
 // buildSolverInput constructs the SolverInput from a ServiceObjective's current state.
-// In the future, this will fetch real metrics from Prometheus and cross-reference
-// TenantProfiles and ForecastResults. For now: populate from status + defaults.
 func (o *OptimizerController) buildSolverInput(ctx context.Context, so *slov1alpha1.ServiceObjective) engine.SolverInput {
 	input := engine.SolverInput{
 		Namespace: so.Namespace,
@@ -247,6 +254,8 @@ func (o *OptimizerController) buildSolverInput(ctx context.Context, so *slov1alp
 		"cpu_usage":        input.Current.CPUUsage,
 		"memory_usage_gib": input.Current.MemoryUsage,
 	}
+
+	o.attachForecast(ctx, &input, so)
 
 	return input
 }

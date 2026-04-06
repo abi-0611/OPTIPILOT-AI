@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useDecisionSummary, useDecisions, useServiceObjectives } from "@/api/hooks";
-import { formatPercent, formatScalingSummary } from "@/lib/utils";
+import { formatForecastHint, formatPercent, formatScalingSummary } from "@/lib/utils";
 import type { DecisionRecord, ServiceObjectiveSummary } from "@/api/types";
 
 function collectMetricColumns(items: ServiceObjectiveSummary[]): string[] {
@@ -217,8 +217,15 @@ function DecisionRow({ record }: { record: DecisionRecord }) {
       <div style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
         {(record.actionType ?? "").replace(/_/g, " ") || "—"}
       </div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--color-text-muted)", minWidth: "130px", textAlign: "right" as const }}>
-        {formatScalingSummary(record) ?? "—"}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px", minWidth: "130px" }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--color-text-muted)", textAlign: "right" as const }}>
+          {formatScalingSummary(record) ?? "—"}
+        </div>
+        {formatForecastHint(record) && (
+          <div style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--color-cyan-glow)", textAlign: "right" as const }}>
+            {formatForecastHint(record)}
+          </div>
+        )}
       </div>
       <ConfidenceBadge value={record.confidence} />
       {record.dryRun && (

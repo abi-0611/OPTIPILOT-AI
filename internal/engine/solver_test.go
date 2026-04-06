@@ -328,7 +328,7 @@ func TestSolver_ForecastPreWarming(t *testing.T) {
 	input := solverInput()
 	input.Forecast = &cel.ForecastResult{
 		PredictedRPS:  300,
-		ChangePercent: 25.0, // >20% triggers pre-warming
+		ChangePercent: 25.0, // >15% triggers pre-warming
 		Confidence:    0.9,
 	}
 
@@ -392,7 +392,7 @@ func TestSolver_ForecastLowChange_NoPreWarming(t *testing.T) {
 	input := solverInput()
 	input.Forecast = &cel.ForecastResult{
 		PredictedRPS:  110,
-		ChangePercent: 10.0, // <20% → no pre-warming
+		ChangePercent: 10.0, // <15% → no pre-warming
 		Confidence:    0.9,
 	}
 
@@ -402,7 +402,7 @@ func TestSolver_ForecastLowChange_NoPreWarming(t *testing.T) {
 	}
 
 	if len(record.Candidates) != baseCandidateCount {
-		t.Errorf("candidates=%d, want same as baseline=%d (no pre-warming for <20%% change)",
+		t.Errorf("candidates=%d, want same as baseline=%d (no pre-warming for <15%% change)",
 			len(record.Candidates), baseCandidateCount)
 	}
 }
@@ -442,7 +442,7 @@ func TestSolver_ForecastBothTriggers(t *testing.T) {
 	input.Current.SpotRatio = 0.5
 	input.Forecast = &cel.ForecastResult{
 		PredictedRPS:  400,
-		ChangePercent: 30.0, // >20% → pre-warming
+		ChangePercent: 30.0, // >15% → pre-warming
 		SpotRiskScore: 0.8,  // >0.6 → spot reduction
 		Confidence:    0.9,
 	}
@@ -469,7 +469,7 @@ func TestSolver_ForecastBothTriggers(t *testing.T) {
 		}
 	}
 	if !hasPreWarm {
-		t.Error("expected pre-warming candidates when ChangePercent>20")
+		t.Error("expected pre-warming candidates when ChangePercent>15")
 	}
 	if !hasSpotReduced {
 		t.Error("expected spot-reduction candidates when SpotRiskScore>0.6")

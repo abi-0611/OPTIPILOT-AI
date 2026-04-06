@@ -38,7 +38,7 @@ func (s *Solver) Solve(input *SolverInput) (ScalingAction, DecisionRecord, error
 	candidates := GenerateCandidates(input, s.MaxCandidates)
 
 	// 1b. Forecast-driven candidate injection.
-	// Pre-warming: if demand predicted to increase >20%, add higher-replica candidates.
+	// Pre-warming: if demand predicted to increase above threshold, add higher-replica candidates.
 	// Spot reduction: if spot risk >0.6, add lower-spot-ratio candidates.
 	// These are injected after pruning to guarantee they reach the scoring phase.
 	if input.Forecast != nil {

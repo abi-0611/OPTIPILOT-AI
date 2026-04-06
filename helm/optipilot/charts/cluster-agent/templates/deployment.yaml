@@ -33,10 +33,34 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+          {{- $prom := "http://prometheus-operated.monitoring.svc.cluster.local:9090" }}
+          {{- if .Values.args.prometheusURL }}
+          {{- $prom = .Values.args.prometheusURL }}
+          {{- end }}
+          {{- if and .Values.global .Values.global.prometheusURL }}
+          {{- $prom = .Values.global.prometheusURL }}
+          {{- end }}
           args:
             - --metrics-bind-address={{ .Values.args.metricsBindAddress }}
             - --health-probe-bind-address={{ .Values.args.healthProbeBindAddress }}
+            - --prometheus-url={{ $prom }}
             - --optimizer-interval={{ .Values.args.optimizerInterval }}
+            - --forecast-lookback={{ .Values.args.forecastLookback }}
+            - --forecast-step={{ .Values.args.forecastStep }}
+            - --forecast-min-points={{ .Values.args.forecastMinPoints }}
+            {{- $mlURL := .Values.args.mlServiceURL }}
+            {{- if and .Values.args.autoDiscoverMLService (not $mlURL) }}
+            {{- $mlURL = printf "http://%s-ml-service.%s.svc.cluster.local:8080" .Release.Name .Release.Namespace }}
+            {{- end }}
+            {{- if $mlURL }}
+            - --ml-service-url={{ $mlURL }}
+            {{- end }}
+            {{- if .Values.args.requirePrometheus }}
+            - --require-prometheus
+            {{- end }}
+            {{- if .Values.args.requireMLForecast }}
+            - --require-ml-forecast
+            {{- end }}
             - --journal-path={{ .Values.args.journalPath }}
             - --api-addr={{ .Values.args.apiAddr }}
             {{- if .Values.args.leaderElect }}

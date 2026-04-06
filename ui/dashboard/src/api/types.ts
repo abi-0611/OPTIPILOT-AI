@@ -75,6 +75,15 @@ export interface CurrentStateSnapshot {
   Replicas?: number;
 }
 
+/** Demand forecast snapshot when proactive pre-warming informed the decision. */
+export interface ForecastState {
+  predictedRPS?: number;
+  predictedLatency?: number;
+  changePercent?: number;
+  confidence?: number;
+  spotRiskScore?: number;
+}
+
 export interface DecisionRecord {
   id: string;
   timestamp: string;
@@ -86,6 +95,8 @@ export interface DecisionRecord {
   confidence: number;
   currentState?: CurrentStateSnapshot;
   sloStatus?: SLOStatus;
+  /** Set when forecast/heuristic demand signal was attached (proactive scaling). */
+  forecastState?: ForecastState;
   /** Optimizer-evaluated options; each item has a nested `plan` from the engine. */
   candidates?: ScoredCandidate[];
   selectedAction?: ScalingAction;

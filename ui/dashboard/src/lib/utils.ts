@@ -28,3 +28,15 @@ export function formatScalingSummary(record: DecisionRecord): string | null {
   }
   return `Target ${target} replicas`;
 }
+
+/** One-line proactive signal from forecast / heuristic (when present). */
+export function formatForecastHint(record: DecisionRecord): string | null {
+  const f = record.forecastState;
+  if (f == null || f.changePercent === undefined || f.changePercent === null) return null;
+  const sign = f.changePercent >= 0 ? "+" : "";
+  const conf =
+    f.confidence !== undefined && f.confidence !== null
+      ? ` · conf ${Math.round(f.confidence * 100)}%`
+      : "";
+  return `Demand forecast ${sign}${f.changePercent.toFixed(0)}%${conf}`;
+}

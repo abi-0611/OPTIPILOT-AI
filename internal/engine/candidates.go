@@ -239,8 +239,8 @@ func CandidateDebugString(p cel.CandidatePlan) string {
 
 const (
 	// PreWarmingChangeThreshold is the ChangePercent above which pre-warming
-	// candidates are injected (>20% predicted demand increase).
-	PreWarmingChangeThreshold = 20.0
+	// candidates are injected (default 15% — proactive before SLO pain).
+	PreWarmingChangeThreshold = 15.0
 
 	// SpotRiskThreshold is the SpotRiskScore above which spot-reduction
 	// candidates are injected (>0.6 interruption probability).

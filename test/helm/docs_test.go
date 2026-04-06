@@ -260,7 +260,7 @@ func TestConfig_HasMTLSSection(t *testing.T) {
 }
 
 func TestConfig_HasPrometheusSection(t *testing.T) {
-	docContains(t, "configuration.md", "clusterAgent.prometheus.url")
+	docContains(t, "configuration.md", "global.prometheusURL")
 }
 
 func TestConfig_HasServiceMonitorSection(t *testing.T) {

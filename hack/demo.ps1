@@ -118,7 +118,8 @@ function Check-ClusterHealth {
     show "Checking cluster health before demo..."
     docker ps --format "table {{.Names}}`t{{.Status}}" | Select-String "optipilot"
     kube "get nodes"
-    kube "get pods -A --field-selector=status.phase=Running --no-headers" | Measure-Object -Line
+    $runningLines = kube "get pods -A --field-selector=status.phase=Running --no-headers" | Measure-Object -Line
+    Write-Host ("Running pods (cluster-wide): {0}" -f $runningLines.Lines) -ForegroundColor DarkGray
     Write-Host "`nIf any nodes are NotReady, run: Reset-Cluster" -ForegroundColor Yellow
 }
 
@@ -272,7 +273,8 @@ function Demo-HorizontalScaling {
 }
 
 # ── Load generator pods (curl in-cluster) ───────────────────
-$script:LoadgenNames = @('loadgen-api', 'loadgen-main', 'loadgen-admin')
+# Include legacy name "loadgen" from older manual runs (otherwise OOMKilled pod lingers in get pods).
+$script:LoadgenNames = @('loadgen', 'loadgen-api', 'loadgen-main', 'loadgen-admin')
 
 function Remove-LoadgenPods {
     foreach ($name in $script:LoadgenNames) {
@@ -361,6 +363,12 @@ function Demo-TrafficAutoscale {
 
     if (-not (Ensure-DockerReady)) { return }
 
+    # Helps kubectl/kubernetes event messages show "->" instead of mojibake (e.g. "ΓåÆ") in older Windows consoles.
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $OutputEncoding = [System.Text.Encoding]::UTF8
+    } catch {}
+
     show "Baseline - replica counts"
     kube "get deploy api main-site admin-frontend -n $NS -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,READY:.status.readyReplicas"
 
@@ -369,7 +377,8 @@ function Demo-TrafficAutoscale {
 
     $watchMinutes = [int]($WatchIterations * $WatchIntervalSec / 60)
     show ("Watching deployments every {0}s ({1} min); Ctrl+C to stop early" -f $WatchIntervalSec, $watchMinutes)
-    Write-Host "  Tip: OptiPilot needs SLO evaluation + optimizer cycles; first changes may take 1-3 min.`n" -ForegroundColor DarkCyan
+    Write-Host "  Tip: OptiPilot needs SLO evaluation + optimizer cycles; first changes may take 1-3 min." -ForegroundColor DarkCyan
+    Write-Host "  Event ages (e.g. 11m) only refresh when NEW decisions occur; cooldowns can mean no new rows during this window.`n" -ForegroundColor DarkCyan
 
     for ($i = 1; $i -le $WatchIterations; $i++) {
         $elapsed = $i * $WatchIntervalSec

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useDecisions, useDecisionExplain } from "@/api/hooks";
 import type { DecisionRecord } from "@/api/types";
-import { formatScalingSummary } from "@/lib/utils";
+import { formatForecastHint, formatScalingSummary } from "@/lib/utils";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
 
 export default function DecisionExplorer() {
@@ -118,6 +118,15 @@ function DecisionCard({ record, expanded, onToggle }: { record: DecisionRecord; 
       {/* Expanded detail */}
       {expanded && (
         <div style={{ borderTop: "1px solid var(--color-border-subtle)", padding: "14px 16px", background: "var(--color-bg-elevated)" }}>
+          {formatForecastHint(record) && (
+            <div style={{ marginBottom: "12px" }}>
+              <Label text="Proactive forecast" />
+              <div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "var(--color-cyan-glow)" }}>
+                {formatForecastHint(record)}
+              </div>
+            </div>
+          )}
+
           {/* Narrative */}
           <div style={{ marginBottom: "14px" }}>
             <Label text="Narrative" />

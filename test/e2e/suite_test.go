@@ -150,12 +150,23 @@ func setupSuite() error {
 		return fmt.Errorf("create k8s client: %w", err)
 	}
 
+	// Namespace + minimal Prometheus stub (chart defaults to --require-prometheus).
+	_ = kubectl(ctx, "create", "namespace", helmNamespace)
+
+	if err := kubectl(ctx, "apply", "-f", "fixtures/prometheus-stub.yaml"); err != nil {
+		return fmt.Errorf("apply prometheus stub: %w", err)
+	}
+	if err := kubectl(ctx, "wait", "--for=condition=available", "deployment/prometheus-stub",
+		"-n", helmNamespace, "--timeout=90s"); err != nil {
+		return fmt.Errorf("wait prometheus-stub: %w", err)
+	}
+
 	// Install CRDs before the Helm chart (crds/ directory is pre-install).
 	if err := kubectl(ctx, "apply", "-f", "../../helm/optipilot/crds/"); err != nil {
 		return fmt.Errorf("apply CRDs: %w", err)
 	}
 
-	// Install OptiPilot via Helm (dry-run mode; no real Prometheus required).
+	// Install OptiPilot via Helm (prometheus-stub satisfies --require-prometheus).
 	if err := helmInstall(ctx); err != nil {
 		return fmt.Errorf("helm install: %w", err)
 	}

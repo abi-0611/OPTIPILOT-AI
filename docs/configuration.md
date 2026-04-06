@@ -11,6 +11,7 @@ All configuration is provided via Helm `values.yaml`. This document covers every
 | `global.image.pullSecrets` | list | `[]` | Names of `imagePullSecret` objects |
 | `global.podLabels` | map | `{}` | Extra labels applied to all pods |
 | `global.podAnnotations` | map | `{}` | Extra annotations applied to all pods |
+| `global.prometheusURL` | string | `http://prometheus-operated.monitoring.svc.cluster.local:9090` | Prometheus base URL for the manager (passed as `--prometheus-url`; overrides `clusterAgent.args.prometheusURL` when set) |
 
 ## Cluster Agent
 
@@ -36,9 +37,12 @@ All configuration is provided via Helm `values.yaml`. This document covers every
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `clusterAgent.prometheus.url` | string | `http://prometheus-operated.monitoring.svc:9090` | Prometheus endpoint |
-| `clusterAgent.prometheus.queryTimeoutSeconds` | int | `30` | Query timeout |
-| `clusterAgent.prometheus.orgID` | string | `""` | Grafana Mimir org ID (multi-tenant Prometheus) |
+| `global.prometheusURL` | string | see Global Settings | Preferred way to set Prometheus for the cluster agent |
+| `clusterAgent.args.prometheusURL` | string | `""` | Per-release override; empty uses chart default unless `global.prometheusURL` is set |
+| `clusterAgent.args.requirePrometheus` | bool | `true` | **Production default:** manager exits on startup if Prometheus is unreachable or range queries fail (`--require-prometheus`). Set `false` only for offline/dev. |
+| `clusterAgent.args.requireMLForecast` | bool | `true` | **Production default:** when `--ml-service-url` is set, manager exits if ML `GET /v1/health` is not OK. Ignored when no ML URL. Set `false` to debug without a healthy ML pod. |
+
+The manager also accepts `--ml-service-url` for ML forecasts; set `clusterAgent.args.mlServiceURL` or `autoDiscoverMLService` when `mlService.enabled` is true.
 
 ## ML Service
 

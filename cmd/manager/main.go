@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/optipilot-ai/optipilot/internal/controller"
 	"github.com/optipilot-ai/optipilot/internal/engine"
 	"github.com/optipilot-ai/optipilot/internal/explainability"
+	"github.com/optipilot-ai/optipilot/internal/forecaster"
 	"github.com/optipilot-ai/optipilot/internal/global/spoke"
 	"github.com/optipilot-ai/optipilot/internal/metrics"
 	"github.com/optipilot-ai/optipilot/internal/simulator"
@@ -58,6 +60,12 @@ func main() {
 	var clusterName string
 	var clusterProvider string
 	var clusterRegion string
+	var mlServiceURL string
+	var forecastLookback time.Duration
+	var forecastStep time.Duration
+	var forecastMinPoints int
+	var requirePrometheus bool
+	var requireMLForecast bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080",
 		"The address the metric endpoint binds to.")
@@ -67,8 +75,14 @@ func main() {
 		"Enable leader election for controller manager.")
 	flag.StringVar(&prometheusURL, "prometheus-url", "http://prometheus-operated.monitoring.svc.cluster.local:9090",
 		"Base URL of the Prometheus instance used for SLO evaluation.")
-	flag.DurationVar(&optimizerInterval, "optimizer-interval", 30*time.Second,
+	flag.DurationVar(&optimizerInterval, "optimizer-interval", 20*time.Second,
 		"Interval between optimization cycles.")
+	flag.DurationVar(&forecastLookback, "forecast-lookback", 90*time.Minute,
+		"Prometheus range query window for demand history (shorter = more responsive to recent load).")
+	flag.DurationVar(&forecastStep, "forecast-step", time.Minute,
+		"Resolution between Prometheus samples for forecasting (e.g. 1m for near-real-time).")
+	flag.IntVar(&forecastMinPoints, "forecast-min-points", 6,
+		"Minimum history points before a forecast/heuristic is applied.")
 	flag.StringVar(&journalPath, "journal-path", "/var/lib/optipilot/decisions.db",
 		"Path to the SQLite decision journal database.")
 	flag.StringVar(&apiAddr, "api-addr", ":8090",
@@ -81,6 +95,12 @@ func main() {
 		"Cloud provider of this cluster (aws, gcp, azure, on-prem, other).")
 	flag.StringVar(&clusterRegion, "cluster-region", "",
 		"Region of this cluster.")
+	flag.StringVar(&mlServiceURL, "ml-service-url", "",
+		"Base URL of the OptiPilot ML service for demand forecasts (empty = Prometheus-only heuristic).")
+	flag.BoolVar(&requirePrometheus, "require-prometheus", false,
+		"If true, exit on startup when Prometheus is unreachable or range queries fail (recommended for production).")
+	flag.BoolVar(&requireMLForecast, "require-ml-forecast", false,
+		"If true and --ml-service-url is set, exit when the ML service /v1/health is not OK.")
 
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
@@ -104,7 +124,19 @@ func main() {
 	}
 
 	promClient := metrics.NewHTTPPrometheusClient(prometheusURL, 10*time.Second, 5*time.Second)
+
+	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	verifyPrometheus(verifyCtx, setupLog, promClient, requirePrometheus)
+	verifyMLServiceOptional(verifyCtx, setupLog, mlServiceURL, requireMLForecast)
+	verifyCancel()
+
 	tenantMgr := tenant.NewManager(promClient)
+
+	var forecastClient *forecaster.Client
+	if mlServiceURL != "" {
+		forecastClient = forecaster.NewClient(mlServiceURL)
+		setupLog.Info("ML forecast client enabled", "url", mlServiceURL)
+	}
 
 	if err = (&controller.ServiceObjectiveReconciler{
 		Client: mgr.GetClient(),
@@ -160,19 +192,23 @@ func main() {
 	}
 
 	optimizerCtrl := &controller.OptimizerController{
-		Client:      mgr.GetClient(),
-		Interval:    optimizerInterval,
-		Solver:      engine.NewSolver(policyEngine, engine.DefaultMaxCandidates),
-		PolicyRecon: policyRecon,
-		Journal:     journal,
-		Recorder:    mgr.GetEventRecorderFor("optimizer-controller"),
+		Client:            mgr.GetClient(),
+		Interval:          optimizerInterval,
+		Solver:            engine.NewSolver(policyEngine, engine.DefaultMaxCandidates),
+		PolicyRecon:       policyRecon,
+		Journal:           journal,
+		Recorder:          mgr.GetEventRecorderFor("optimizer-controller"),
 		ActuatorReg: func() *actuator.Registry {
 			registry := actuator.NewRegistry()
 			registry.Register(actuator.NewPodActuator(mgr.GetClient()))
 			return registry
 		}(),
-		SafetyGuard: actuator.NewSafetyGuard(mgr.GetClient()),
-		PromClient:  promClient,
+		SafetyGuard:       actuator.NewSafetyGuard(mgr.GetClient()),
+		PromClient:        promClient,
+		Forecaster:        forecastClient,
+		ForecastLookback:  forecastLookback,
+		ForecastStep:      forecastStep,
+		ForecastMinPoints: forecastMinPoints,
 	}
 	if err := mgr.Add(optimizerCtrl); err != nil {
 		setupLog.Error(err, "unable to register optimizer controller")

@@ -49,11 +49,11 @@ type TenantStatus struct {
 
 // ForecastResult represents predicted future demand.
 type ForecastResult struct {
-	PredictedRPS     float64 `cel:"predicted_rps"`
-	PredictedLatency float64 `cel:"predicted_latency"`
-	ChangePercent    float64 `cel:"change_percent"` // vs current
-	Confidence       float64 `cel:"confidence"`
-	SpotRiskScore    float64 `cel:"spot_risk_score"` // 0.0 to 1.0
+	PredictedRPS     float64 `json:"predictedRPS" cel:"predicted_rps"`
+	PredictedLatency float64 `json:"predictedLatency,omitempty" cel:"predicted_latency"`
+	ChangePercent    float64 `json:"changePercent" cel:"change_percent"` // vs current
+	Confidence       float64 `json:"confidence" cel:"confidence"`
+	SpotRiskScore    float64 `json:"spotRiskScore,omitempty" cel:"spot_risk_score"` // 0.0 to 1.0
 }
 
 // ClusterState represents overall cluster state.

@@ -63,7 +63,7 @@ func helmInstall(ctx context.Context) error {
 		"--set", "clusterAgent.enabled=true",
 		"--set", "mlService.enabled=false",
 		"--set", "hub.enabled=false",
-		"--set", fmt.Sprintf("clusterAgent.prometheus.url=http://prometheus-stub.%s.svc:9090", helmNamespace),
+		"--set", fmt.Sprintf("global.prometheusURL=http://prometheus-stub.%s.svc:9090", helmNamespace),
 		"--wait",
 		"--timeout=3m",
 	}

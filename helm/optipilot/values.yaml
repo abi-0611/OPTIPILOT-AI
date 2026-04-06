@@ -42,14 +42,25 @@ clusterAgent:
   args:
     metricsBindAddress: ":8080"
     healthProbeBindAddress: ":8081"
+    # Optional; if empty, global.prometheusURL is used (see global.prometheusURL above).
+    prometheusURL: ""
     leaderElect: true
-    optimizerInterval: "60s"
+    optimizerInterval: "20s"
+    forecastLookback: "90m"
+    forecastStep: "1m"
+    forecastMinPoints: "6"
     journalPath: "/data/decisions.db"
     apiAddr: ":8090"
     hubEndpoint: ""      # Set to enable spoke agent (e.g. hub.optipilot-system:50051)
     clusterName: ""      # Required when hubEndpoint is set
     clusterProvider: ""
     clusterRegion: ""
+    # Or leave empty and set autoDiscoverMLService: true (same chart release as cluster-agent).
+    mlServiceURL: ""
+    autoDiscoverMLService: false
+    # Production defaults: fail fast if Prometheus or (when ML URL is set) ML health is bad.
+    requirePrometheus: true
+    requireMLForecast: true
 
   serviceAccount:
     create: true

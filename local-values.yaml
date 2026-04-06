@@ -1,18 +1,27 @@
-# Must match kube-prometheus-stack service name (see: kubectl -n monitoring get svc).
+# Local / dev — overrides production-strict defaults from helm/optipilot/values.yaml
+# (chart defaults: requirePrometheus=true, requireMLForecast=true).
 global:
   prometheusURL: "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
 
 clusterAgent:
   enabled: true
+  args:
+    optimizerInterval: "20s"
+    forecastLookback: "90m"
+    forecastStep: "1m"
+    forecastMinPoints: "6"
+    # Same as chart production defaults (explicit):
+    requirePrometheus: true
+    requireMLForecast: true
+    # Relaxed dev only (not for production):
+    # requirePrometheus: false
+    # requireMLForecast: false
+    # Predictive ML (enable only when the ml-service pod is Ready):
+    # mlServiceURL: "http://optipilot-ml-service.optipilot-system.svc.cluster.local:8080"
+    autoDiscoverMLService: true
 
 mlService:
-  enabled: false
+  enabled: true
 
 hub:
   enabled: false
-
-cluster-agent:
-  image:
-    repository: optipilot-manager
-    tag: local
-    pullPolicy: Never

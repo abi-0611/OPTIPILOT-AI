@@ -8,8 +8,21 @@ replicaCount: 1
 args:
   metricsBindAddress: ":8080"
   healthProbeBindAddress: ":8081"
+  # Prometheus base URL for SLO + forecast history (overridden by global.prometheusURL when set).
+  prometheusURL: ""
   leaderElect: true
-  optimizerInterval: "60s"
+  optimizerInterval: "20s"
+  # Near–real-time forecast tuning (manager flags).
+  forecastLookback: "90m"
+  forecastStep: "1m"
+  forecastMinPoints: "6"
+  # OptiPilot ML HTTP service. If empty and autoDiscoverMLService is true, uses http://RELEASE-ml-service.NS.svc.cluster.local:8080
+  mlServiceURL: ""
+  autoDiscoverMLService: false
+  # Exit on startup if Prometheus is down (set true in production for fail-fast).
+  requirePrometheus: true
+  # When --ml-service-url is set, exit if ML GET /v1/health is not OK.
+  requireMLForecast: true
   journalPath: "/data/decisions.db"
   apiAddr: ":8090"
   hubEndpoint: ""
