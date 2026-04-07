@@ -78,7 +78,7 @@ func (s *Scorer) scoreSLO(c cel.CandidatePlan) float64 {
 
 	demand := s.currentDemand()
 	if demand <= 0 {
-		return 1.0 // no demand, any candidate meets SLO
+		demand = 1e-9 // defensive; currentDemand should always return a positive floor
 	}
 
 	capacityRatio := float64(c.Replicas) * c.CPURequest / demand
@@ -140,13 +140,24 @@ func hasObservedSLOSignal(status cel.SLOStatus) bool {
 
 // currentDemand returns the demand to score against.
 // Uses forecast predicted demand if available, otherwise current CPU usage.
+// When Prometheus returns ~0 (idle or scrape gap), falls back to a fraction of reserved CPU
+// so candidates do not all get an identical perfect SLO score (which lets cost dominate and blocks scaling).
 func (s *Scorer) currentDemand() float64 {
+	var d float64
 	if s.input.Forecast != nil && s.input.Forecast.PredictedRPS > 0 {
-		// Use forecast: scale current usage by predicted change.
 		changeRatio := 1.0 + s.input.Forecast.ChangePercent/100.0
-		return s.input.Current.CPUUsage * changeRatio
+		d = s.input.Current.CPUUsage * changeRatio
+	} else {
+		d = s.input.Current.CPUUsage
 	}
-	return s.input.Current.CPUUsage
+	if d > 0 {
+		return d
+	}
+	r := float64(s.input.Current.Replicas) * s.input.Current.CPURequest
+	if r < 1e-9 {
+		r = 0.01
+	}
+	return r * 0.05
 }
 
 // scoreCost normalizes cost to [0, 1] where 1 = cheapest.

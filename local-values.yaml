@@ -5,6 +5,11 @@ global:
 
 clusterAgent:
   enabled: true
+  # Images built locally and loaded into kind: docker build + kind load docker-image
+  image:
+    repository: ghcr.io/optipilot-ai/optipilot/manager
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
   args:
     optimizerInterval: "20s"
     forecastLookback: "90m"
@@ -22,6 +27,10 @@ clusterAgent:
 
 mlService:
   enabled: true
+  image:
+    repository: ghcr.io/optipilot-ai/optipilot/ml
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
 
 hub:
   enabled: false

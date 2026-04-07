@@ -81,7 +81,7 @@ func TestPromQLBuilder_BuildQuery_Availability(t *testing.T) {
 
 func TestPromQLBuilder_BuildQuery_OverrideExistingMetric(t *testing.T) {
 	b := &slo.PromQLBuilder{MetricPrefix: "ignored", Labels: `namespace="prod"`}
-	customQ := `histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket{namespace="codepro",service="api"}[5m])) by (le))`
+	customQ := `histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket{namespace="test",service="api"}[5m])) by (le))`
 	q, err := b.BuildQuery(slov1alpha1.MetricLatencyP99, "5m", customQ)
 	if err != nil {
 		t.Fatal(err)

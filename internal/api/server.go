@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 "context"
@@ -25,7 +25,7 @@ mux  *http.ServeMux
 
 // NewServer creates a Server that listens on addr.
 // handlers must be the RouteRegistrar objects for each sub-API.
-// uiFS is the embedded ui/dashboard/dist directory; pass nil to skip SPA serving.
+// uiFS is the embedded dashboard static files (index.html, assets/...); pass nil to skip SPA serving.
 func NewServer(addr string, uiFS fs.FS, handlers ...RouteRegistrar) *Server {
 mux := http.NewServeMux()
 

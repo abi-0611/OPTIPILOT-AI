@@ -1,0 +1,142 @@
+# Online Boutique (Google microservices-demo) - ServiceObjectives + shared OptimizationPolicy
+# Apply after: kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/main/release/kubernetes-manifests.yaml
+# Namespace: default
+#
+# Labels: tier=boutique on every ServiceObjective so one OptimizationPolicy can match all.
+# CPU headroom queries use (sum(...) or vector(0)) so scale-to-zero / no pods still returns a scalar.
+#
+# Demo tuning (more frequent scale/tune):
+#   - Shorter evaluationInterval + stricter CPU headroom target = SLO flips more often under load.
+#   - Shorter policy cooldowns = next scale/tune can fire sooner (noisier in production).
+#   - Faster optimizer loop (Helm): clusterAgent.args.optimizerInterval: "10s"
+#   - More RPS: . .\hack\boutique-heavy-load.ps1 ; Start-BoutiqueHeavyLoad -ParallelPods 12
+#   - Optional: kubectl set env deploy/loadgenerator -n default USERS=40 RATE=3
+
+apiVersion: slo.optipilot.ai/v1alpha1
+kind: ServiceObjective
+metadata:
+  name: boutique-frontend-slo
+  namespace: default
+  labels:
+    tier: boutique
+    app: frontend
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  objectives:
+    - metric: custom
+      customQuery: 'kube_deployment_status_replicas_available{namespace="default",deployment="frontend"} / clamp_min(kube_deployment_spec_replicas{namespace="default",deployment="frontend"}, 1)'
+      target: "99.5%"
+      window: "5m"
+    - metric: custom
+      customQuery: '1 - clamp_max((sum(rate(container_cpu_usage_seconds_total{namespace="default",pod=~"frontend-.*",container!="",container!="POD"}[5m])) or vector(0)) / clamp_min((sum(kube_pod_container_resource_limits{namespace="default",pod=~"frontend-.*",resource="cpu"})) or vector(0.001), 0.001), 1)'
+      target: "30%"
+      window: "5m"
+  errorBudget:
+    total: "1.0%"
+    burnRateAlerts:
+      - severity: warning
+        shortWindow: "5m"
+        longWindow: "1h"
+        factor: 14.4
+  evaluationInterval: "15s"
+---
+apiVersion: slo.optipilot.ai/v1alpha1
+kind: ServiceObjective
+metadata:
+  name: boutique-checkoutservice-slo
+  namespace: default
+  labels:
+    tier: boutique
+    app: checkoutservice
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkoutservice
+  objectives:
+    - metric: custom
+      customQuery: 'kube_deployment_status_replicas_available{namespace="default",deployment="checkoutservice"} / clamp_min(kube_deployment_spec_replicas{namespace="default",deployment="checkoutservice"}, 1)'
+      target: "99.5%"
+      window: "5m"
+    - metric: custom
+      customQuery: '1 - clamp_max((sum(rate(container_cpu_usage_seconds_total{namespace="default",pod=~"checkoutservice-.*",container!="",container!="POD"}[5m])) or vector(0)) / clamp_min((sum(kube_pod_container_resource_limits{namespace="default",pod=~"checkoutservice-.*",resource="cpu"})) or vector(0.001), 0.001), 1)'
+      target: "30%"
+      window: "5m"
+  errorBudget:
+    total: "1.0%"
+    burnRateAlerts:
+      - severity: warning
+        shortWindow: "5m"
+        longWindow: "1h"
+        factor: 14.4
+  evaluationInterval: "15s"
+---
+apiVersion: slo.optipilot.ai/v1alpha1
+kind: ServiceObjective
+metadata:
+  name: boutique-cartservice-slo
+  namespace: default
+  labels:
+    tier: boutique
+    app: cartservice
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cartservice
+  objectives:
+    - metric: custom
+      customQuery: 'kube_deployment_status_replicas_available{namespace="default",deployment="cartservice"} / clamp_min(kube_deployment_spec_replicas{namespace="default",deployment="cartservice"}, 1)'
+      target: "99.5%"
+      window: "5m"
+    - metric: custom
+      customQuery: '1 - clamp_max((sum(rate(container_cpu_usage_seconds_total{namespace="default",pod=~"cartservice-.*",container!="",container!="POD"}[5m])) or vector(0)) / clamp_min((sum(kube_pod_container_resource_limits{namespace="default",pod=~"cartservice-.*",resource="cpu"})) or vector(0.001), 0.001), 1)'
+      target: "30%"
+      window: "5m"
+  errorBudget:
+    total: "1.0%"
+    burnRateAlerts:
+      - severity: warning
+        shortWindow: "5m"
+        longWindow: "1h"
+        factor: 14.4
+  evaluationInterval: "15s"
+---
+apiVersion: policy.optipilot.ai/v1alpha1
+kind: OptimizationPolicy
+metadata:
+  name: boutique-policy
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      tier: boutique
+  objectives:
+    - name: slo_compliance
+      weight: 0.8
+      direction: maximize
+    - name: cost
+      weight: 0.15
+      direction: minimize
+    - name: carbon
+      weight: 0.05
+      direction: minimize
+  constraints:
+    - expr: "candidate.replicas >= 1"
+      reason: "Always keep at least 1 replica"
+      hard: true
+    - expr: "candidate.replicas <= 10"
+      reason: "Cap at 10 replicas"
+      hard: true
+  scalingBehavior:
+    scaleUp:
+      maxPercent: 100
+      cooldownSeconds: 20
+    scaleDown:
+      maxPercent: 50
+      cooldownSeconds: 35
+  dryRun: false
+  priority: 100

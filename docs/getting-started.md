@@ -94,44 +94,36 @@ open http://localhost:8090
 
 ## Using OptiPilot With Your Own Project
 
-OptiPilot does not control code in a folder directly. It watches Kubernetes
-workloads, reads Prometheus metrics, and then recommends or applies changes to
-the workload objects running in the cluster.
+OptiPilot does not control application source code directly. It watches
+Kubernetes workloads, reads Prometheus metrics, and recommends or applies
+changes to workload objects in the cluster.
 
-For your CodePro project in `E:\codepro`, the easiest first target is the
-backend API service because it already exposes `/health` and `/metrics`.
+What you need:
 
-What you need first:
+- A `Deployment` (or workload the CRDs support) in the same cluster as OptiPilot
+- Prometheus scraping metrics used in your SLO expressions
+- A `ServiceObjective` whose `targetRef` points at that workload
+- An `OptimizationPolicy` whose `selector` matches labels on the `ServiceObjective`
 
-- A Kubernetes deployment for CodePro running in the same cluster as OptiPilot
-- Prometheus scraping the backend metrics endpoint
-- A `ServiceObjective` that points at the CodePro deployment you want to tune
-- An `OptimizationPolicy` that selects that workload by label
+A common demo target is [Google Online Boutique](https://github.com/GoogleCloudPlatform/microservices-demo)
+(or any HTTP microservices sample). After installing it (often namespace `default`),
+pick one deployment (for example `frontend`) and apply labels the policy can match.
 
-Use the backend service as the first example. The project already has these
-runtime settings in `admin-backend/.env.example`:
-
-- `DATABASE_URL`
-- `SECRET_KEY`
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD`
-- `REDIS_URL`
-
-Once the CodePro backend is deployed to Kubernetes, apply an SLO like this:
+Example `ServiceObjective` (adjust names, namespace, and labels to your app):
 
 ```yaml
 apiVersion: slo.optipilot.ai/v1alpha1
 kind: ServiceObjective
 metadata:
-  name: codepro-api-slo
-  namespace: codepro
+  name: frontend-slo
+  namespace: default
   labels:
-    app: codepro-api
+    app: frontend
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: api
+    name: frontend
   objectives:
     - metric: availability
       target: "99.9%"
@@ -144,21 +136,18 @@ spec:
     total: "0.1%"
 ```
 
-Then apply a policy that OptiPilot can use for decisions:
-
-The `OptimizationPolicy.selector` matches labels on the ServiceObjective, so
-the SLO above includes `app: codepro-api`.
+The `OptimizationPolicy.selector` must match labels on the `ServiceObjective`:
 
 ```yaml
 apiVersion: policy.optipilot.ai/v1alpha1
 kind: OptimizationPolicy
 metadata:
-  name: codepro-api-policy
-  namespace: codepro
+  name: frontend-policy
+  namespace: default
 spec:
   selector:
     matchLabels:
-      app: codepro-api
+      app: frontend
   objectives:
     - name: slo_compliance
       direction: maximize
@@ -169,9 +158,18 @@ spec:
   dryRun: true
 ```
 
-If you have not deployed CodePro to Kubernetes yet, that is the next step.
-I can help scaffold the Kubernetes manifests for `E:\codepro` next if you want
-the exact deployment files.
+Start with `dryRun: true` until you are satisfied with evaluation, then set
+`dryRun: false` for actuation. See also [Your first SLO tutorial](./guides/first-slo.md).
+
+### Online Boutique (microservices-demo)
+
+After deploying the [official manifests](https://github.com/GoogleCloudPlatform/microservices-demo)
+to namespace `default`, apply the sample SLOs and policy bundled in this repo:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/GoogleCloudPlatform/microservices-demo/main/release/kubernetes-manifests.yaml
+kubectl apply -f examples/boutique-slos.yaml
+```
 
 ## Cleanup
 

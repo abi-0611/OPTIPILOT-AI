@@ -5,14 +5,32 @@
 #
 # Easiest autoscale review (HTTP load + watch):  . .\hack\demo.ps1
 #                                                 Run-TrafficDemo
-# Optional: Run-TrafficDemo -ApiMode django -IncludeFrontends
+# Optional: Run-TrafficDemo -IncludeExtraTargets
 # ============================================================
 
 $CTX = "kind-optipilot-quickstart"
 $K   = "kubectl --context $CTX"
-$NS  = "codepro"
+# Namespace where your demo workload runs (Online Boutique often uses "default")
+$NS  = "default"
+# Deployment used in Demo-HorizontalScaling (scale to 0); must match a ServiceObjective targetRef.name
+$DemoHorizontalDeployment = "frontend"
+# Kubernetes service name for REST/What-If examples (matches targetRef.name / journal)
+$DemoServiceNameForAPI = "frontend"
+# In-cluster HTTP URL for load generators (Boutique: Service frontend exposes port 80 -> container 8080)
+$script:DemoLoadHttpUrl = "http://frontend/"
+# Optional extra URLs for additional loadgen pods when -IncludeExtraTargets is used (second pod hits same URL = more RPS)
+$script:DemoLoadHttpUrlsExtra = @("http://frontend/")
+# Optional: deployments Reset-Cluster restores to 1 replica (Boutique core path)
+$script:DemoRestoreDeployments = @('frontend', 'checkoutservice', 'cartservice')
 # Repo root (parent of hack/) when script lives at hack/demo.ps1
 $RepoRoot = if ($PSScriptRoot) { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path } else { (Get-Location).Path }
+
+function Get-FirstDemoServiceObjectiveName {
+    kubectl --context $CTX get serviceobjectives -n $NS -o jsonpath='{.items[0].metadata.name}' 2>$null
+}
+function Get-FirstDemoOptimizationPolicyName {
+    kubectl --context $CTX get optimizationpolicies -n $NS -o jsonpath='{.items[0].metadata.name}' 2>$null
+}
 
 # ── helpers ─────────────────────────────────────────────────
 function pause-section ($title) {
@@ -141,15 +159,14 @@ function Reset-Cluster {
     Write-Host "[3/5] Waiting for system pods to start (~30s)..." -ForegroundColor Yellow
     Start-Sleep -Seconds 30
 
-    Write-Host "[4/5] Restoring demo-ready replica counts..." -ForegroundColor Yellow
-    kube "scale deploy/api            -n $NS --replicas=1"
-    kube "scale deploy/main-site      -n $NS --replicas=1"
-    kube "scale deploy/admin-frontend -n $NS --replicas=1"
-
-    Write-Host "[5/5] Waiting for all workload pods Running..." -ForegroundColor Yellow
-    kube "rollout status deploy/api            -n $NS --timeout=90s"
-    kube "rollout status deploy/main-site      -n $NS --timeout=90s"
-    kube "rollout status deploy/admin-frontend -n $NS --timeout=90s"
+    Write-Host "[4/5] Restoring demo app replica counts (if `$script:DemoRestoreDeployments is set)..." -ForegroundColor Yellow
+    foreach ($d in $script:DemoRestoreDeployments) {
+        kube "scale deploy/$d -n $NS --replicas=1" 2>$null | Out-Null
+    }
+    Write-Host "[5/5] Waiting for workload rollouts (if any)..." -ForegroundColor Yellow
+    foreach ($d in $script:DemoRestoreDeployments) {
+        kube "rollout status deploy/$d -n $NS --timeout=90s" 2>$null | Out-Null
+    }
     kube "rollout status deploy/optipilot-cluster-agent -n optipilot-system --timeout=120s"
 
     Write-Host "`nCluster reset complete. Run Check-ClusterHealth to verify." -ForegroundColor Green
@@ -189,12 +206,12 @@ function Demo-Architecture {
     show "3-node Kubernetes cluster (kind)"
     kube "get nodes -o wide"
 
-    show "What is running: 3 layers across 4 namespaces"
+    show "What is running: 3 layers across namespaces"
     kube "get pods -A --no-headers" | `
-        Select-String "optipilot-system|codepro|monitoring|kube-system" | `
+        Select-String "optipilot-system|$NS|monitoring|kube-system" | `
         Format-Table
 
-    show "App layer - CodePro microservices (codepro namespace)"
+    show "App layer - workloads in namespace $NS"
     kube "get deploy,svc -n $NS"
 
     show "Controller layer - OptiPilot agent (optipilot-system namespace)"
@@ -219,11 +236,21 @@ function Demo-CRDs {
     show "OptimizationPolicies - CEL guardrails for the solver"
     kube "get optimizationpolicies -n $NS"
 
-    show "Live SLO details for api service"
-    kube "describe serviceobjective codepro-api-slo -n $NS"
+    $soName = Get-FirstDemoServiceObjectiveName
+    if ($soName) {
+        show "Live SLO details (first ServiceObjective in $NS)"
+        kube "describe serviceobjective $soName -n $NS"
+    } else {
+        Write-Host "  (no ServiceObjectives in $NS - apply one for your workload deployment)" -ForegroundColor Yellow
+    }
 
-    show "Live policy (CEL expressions) for api service"
-    kube "get optimizationpolicy codepro-api-policy -n $NS -o yaml"
+    $polName = Get-FirstDemoOptimizationPolicyName
+    if ($polName) {
+        show "Live policy (first OptimizationPolicy)"
+        kube "get optimizationpolicy $polName -n $NS -o yaml"
+    } else {
+        Write-Host "  (no OptimizationPolicies in $NS)" -ForegroundColor Yellow
+    }
 }
 
 # ============================================================
@@ -232,15 +259,15 @@ function Demo-CRDs {
 function Demo-HorizontalScaling {
     pause-section "SECTION 3: Horizontal Auto-Scaling (LIVE)"
 
-    show "Current replica counts (api=1, will be scaled up by OptiPilot)"
+    show "Current replica counts ($DemoHorizontalDeployment should have a matching ServiceObjective)"
     kube "get deploy -n $NS"
 
-    # Trigger SLO violation: scale api to 0 so kube-state-metrics reports
+    # Trigger SLO violation: scale deployment to 0 so kube-state-metrics reports
     # replicas_available=0, which violates the availability SLO target.
     # OptiPilot will detect this and issue a scale_up decision autonomously.
-    show "Triggering SLO violation: scaling api to 0 replicas..."
-    kube "scale deploy/api -n $NS --replicas=0"
-    Write-Host "api scaled to 0 - availability SLO will fire within 30s scrape" -ForegroundColor Yellow
+    show "Triggering SLO violation: scaling $DemoHorizontalDeployment to 0 replicas..."
+    kube "scale deploy/$DemoHorizontalDeployment -n $NS --replicas=0"
+    Write-Host "$DemoHorizontalDeployment scaled to 0 - availability SLO will fire within 30s scrape" -ForegroundColor Yellow
 
     show "Waiting for OptiPilot optimizer cycle (~75s)..."
     Write-Host '  Phase 1 (0 to 30s):  Prometheus scrapes 0 available replicas' -ForegroundColor Cyan
@@ -253,9 +280,13 @@ function Demo-HorizontalScaling {
         Write-Host "  [$elapsed s elapsed]" -ForegroundColor DarkGray -NoNewline
         # Show SLO status at 35s mark
         if ($elapsed -eq 35) {
-            $cond = kubectl --context $CTX get serviceobjective codepro-api-slo -n $NS `
-                -o jsonpath='{.status.conditions[?(@.type=="SLOCompliant")].status}' 2>$null
-            Write-Host "  SLOCompliant=$cond" -ForegroundColor $(if ($cond -eq "False") { "Red" } else { "Green" })
+            $soWatch = Get-FirstDemoServiceObjectiveName
+            $cond = ""
+            if ($soWatch) {
+                $cond = kubectl --context $CTX get serviceobjective $soWatch -n $NS `
+                    -o jsonpath='{.status.conditions[?(@.type=="SLOCompliant")].status}' 2>$null
+            }
+            Write-Host "  SLOCompliant=$cond (first SO: $soWatch)" -ForegroundColor $(if ($cond -eq "False") { "Red" } else { "Green" })
         } else {
             Write-Host ""
         }
@@ -266,15 +297,14 @@ function Demo-HorizontalScaling {
         Select-String "scale_up|scale_down|tune" | Select-Object -Last 5
 
     show "Current replica count - OptiPilot has scaled up autonomously"
-    kube "get deploy api -n $NS"
+    kube "get deploy $DemoHorizontalDeployment -n $NS"
 
     show "Actuation confirmations"
     kube "get events -n $NS --sort-by='.lastTimestamp' --field-selector reason=Actuated" | Select-Object -Last 5
 }
 
 # ── Load generator pods (curl in-cluster) ───────────────────
-# Include legacy name "loadgen" from older manual runs (otherwise OOMKilled pod lingers in get pods).
-$script:LoadgenNames = @('loadgen', 'loadgen-api', 'loadgen-main', 'loadgen-admin')
+$script:LoadgenNames = @('loadgen-demo', 'loadgen-demo-1', 'loadgen-demo-2', 'loadgen', 'loadgen-api')
 
 function Remove-LoadgenPods {
     foreach ($name in $script:LoadgenNames) {
@@ -285,53 +315,54 @@ function Remove-LoadgenPods {
 
 <#
 .SYNOPSIS
-    Starts HTTP load against api / main-site / admin-frontend inside the cluster.
-.PARAMETER ApiMode
-    nginx  = GET http://api:8000/
-    django = GET /api/courses/ on api:8000 (set $env:CODEPRO_DJANGO=1 before Run-TrafficDemo to use Django path)
+    Starts HTTP load against $script:DemoLoadHttpUrl (and optional extra URLs) inside the cluster.
+.PARAMETER IncludeExtraTargets
+    If set, starts a second pod hitting each URL in $script:DemoLoadHttpUrlsExtra
 #>
-function Start-CodeproLoadGenerators {
+function Start-DemoLoadGenerators {
     param(
-        [ValidateSet('nginx', 'django')]
-        [string]$ApiMode = 'nginx',
-        [switch]$IncludeFrontends
+        [switch]$IncludeExtraTargets
     )
     if (-not (Ensure-DockerReady)) { return }
 
     Remove-LoadgenPods
     Start-Sleep -Seconds 2
 
-    # Keep script ASCII-only: django mode uses a tiny shell var to avoid &/? quoting issues in PowerShell.
-    if ($ApiMode -eq 'django') {
-        $apiScript = 'U="http://api:8000/api/courses/?published_only=true&limit=100"; while true; do curl -sS -o /dev/null "$U"; done'
-    } else {
-        $apiScript = 'while true; do curl -sS -o /dev/null http://api:8000/; done'
-    }
+    $u = $script:DemoLoadHttpUrl
+    $apiScript = "while true; do curl -sS -o /dev/null `"$u`"; done"
 
-    show "Starting loadgen-api (curl loop)..."
-    & kubectl --context $CTX run loadgen-api --restart=Never -n $NS --image=curlimages/curl:8.5.0 -- sh -c $apiScript
+    show "Starting loadgen-demo (curl loop) -> $u"
+    & kubectl --context $CTX run loadgen-demo --restart=Never -n $NS --image=curlimages/curl:8.5.0 -- sh -c $apiScript
     Start-Sleep -Seconds 2
-    kube "wait --for=condition=Ready pod/loadgen-api -n $NS --timeout=60s" 2>$null
+    kube "wait --for=condition=Ready pod/loadgen-demo -n $NS --timeout=60s" 2>$null
 
-    if ($IncludeFrontends) {
-        show "Starting loadgen-main + loadgen-admin..."
-        $mainScript = 'while true; do curl -sS -o /dev/null http://main-site/; done'
-        $admScript  = 'while true; do curl -sS -o /dev/null http://admin-frontend/; done'
-        & kubectl --context $CTX run loadgen-main --restart=Never -n $NS --image=curlimages/curl:8.5.0 -- sh -c $mainScript
-        & kubectl --context $CTX run loadgen-admin --restart=Never -n $NS --image=curlimages/curl:8.5.0 -- sh -c $admScript
-        Start-Sleep -Seconds 2
-        kube "wait --for=condition=Ready pod/loadgen-main -n $NS --timeout=60s" 2>$null
-        kube "wait --for=condition=Ready pod/loadgen-admin -n $NS --timeout=60s" 2>$null
+    if ($IncludeExtraTargets -and $script:DemoLoadHttpUrlsExtra.Count -gt 0) {
+        $i = 0
+        foreach ($ex in $script:DemoLoadHttpUrlsExtra) {
+            $i++
+            $script = "while true; do curl -sS -o /dev/null `"$ex`"; done"
+            $podName = "loadgen-demo-$i"
+            show "Starting $podName -> $ex"
+            & kubectl --context $CTX run $podName --restart=Never -n $NS --image=curlimages/curl:8.5.0 -- sh -c $script
+            Start-Sleep -Seconds 2
+            kube "wait --for=condition=Ready pod/$podName -n $NS --timeout=60s" 2>$null | Out-Null
+        }
     }
 
     show "Load generators running:"
     kube "get pods -n $NS --no-headers" | Select-String "loadgen"
 }
 
-function Stop-CodeproLoadGenerators {
+function Stop-DemoLoadGenerators {
     Remove-LoadgenPods
     Write-Host "Load generators stopped." -ForegroundColor Green
 }
+
+function Start-CodeproLoadGenerators {
+    param([switch]$IncludeExtraTargets)
+    Start-DemoLoadGenerators -IncludeExtraTargets:$IncludeExtraTargets
+}
+function Stop-CodeproLoadGenerators { Stop-DemoLoadGenerators }
 
 function Ensure-PortForward8090 {
     $alive = $false
@@ -352,9 +383,7 @@ function Ensure-PortForward8090 {
 # ============================================================
 function Demo-TrafficAutoscale {
     param(
-        [ValidateSet('nginx', 'django')]
-        [string]$ApiMode = 'nginx',
-        [switch]$IncludeFrontends,
+        [switch]$IncludeExtraTargets,
         [int]$WatchIterations = 18,
         [int]$WatchIntervalSec = 10
     )
@@ -370,10 +399,10 @@ function Demo-TrafficAutoscale {
     } catch {}
 
     show "Baseline - replica counts"
-    kube "get deploy api main-site admin-frontend -n $NS -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,READY:.status.readyReplicas"
+    kube "get deploy -n $NS -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,READY:.status.readyReplicas"
 
-    show "Starting HTTP load inside cluster (ApiMode=$ApiMode)"
-    Start-CodeproLoadGenerators -ApiMode $ApiMode -IncludeFrontends:$IncludeFrontends
+    show "Starting HTTP load inside cluster (DemoLoadHttpUrl=$script:DemoLoadHttpUrl)"
+    Start-DemoLoadGenerators -IncludeExtraTargets:$IncludeExtraTargets
 
     $watchMinutes = [int]($WatchIterations * $WatchIntervalSec / 60)
     show ("Watching deployments every {0}s ({1} min); Ctrl+C to stop early" -f $WatchIntervalSec, $watchMinutes)
@@ -383,7 +412,7 @@ function Demo-TrafficAutoscale {
     for ($i = 1; $i -le $WatchIterations; $i++) {
         $elapsed = $i * $WatchIntervalSec
         Write-Host ("--- t+{0}s ---" -f $elapsed) -ForegroundColor Cyan
-        kube "get deploy api main-site admin-frontend -n $NS -o custom-columns=NAME:.metadata.name,REP:.spec.replicas,READY:.status.readyReplicas"
+        kube "get deploy -n $NS -o custom-columns=NAME:.metadata.name,REP:.spec.replicas,READY:.status.readyReplicas"
         kube "get events -n $NS --sort-by='.lastTimestamp' " 2>$null |
             Select-String "OptimizationDecision|Actuated" |
             Select-Object -Last 4
@@ -395,11 +424,11 @@ function Demo-TrafficAutoscale {
         Select-String "optimization decision|actuation applied|scale_|tune"
 
     show "Stopping load generators"
-    Stop-CodeproLoadGenerators
+    Stop-DemoLoadGenerators
 
     show "Cooldown - waiting 130s (policy scaleDown cooldown is often 120s), then snapshot"
     Start-Sleep -Seconds 130
-    kube "get deploy api main-site admin-frontend -n $NS -o custom-columns=NAME:.metadata.name,REP:.spec.replicas,READY:.status.readyReplicas"
+    kube "get deploy -n $NS -o custom-columns=NAME:.metadata.name,REP:.spec.replicas,READY:.status.readyReplicas"
     kube "get events -n $NS --sort-by='.lastTimestamp'" | Select-String "OptimizationDecision|Actuated" | Select-Object -Last 6
 
     Ensure-PortForward8090
@@ -426,12 +455,10 @@ function Demo-TrafficAutoscale {
 
 function Run-TrafficDemo {
     param(
-        [ValidateSet('nginx', 'django')]
-        [string]$ApiMode = 'nginx',
-        [switch]$IncludeFrontends
+        [switch]$IncludeExtraTargets
     )
     Check-ClusterHealth
-    Demo-TrafficAutoscale -ApiMode $ApiMode -IncludeFrontends:$IncludeFrontends
+    Demo-TrafficAutoscale -IncludeExtraTargets:$IncludeExtraTargets
 }
 
 # ============================================================
@@ -450,17 +477,14 @@ function Demo-VerticalScaling {
     show "All actuation events (both horizontal and vertical)"
     kube "get events -n $NS --sort-by='.lastTimestamp' --field-selector reason=Actuated"
 
-    show "Deployment revision history - every tune created a new rollout"
-    kube "rollout history deploy/main-site -n $NS"
-    kube "rollout history deploy/admin-frontend -n $NS"
+    show "Deployment revision history (example deployment)"
+    kube "rollout history deploy/$DemoHorizontalDeployment -n $NS" 2>$null
 
-    show "BEFORE vs AFTER right-sizing (from session history)"
+    show "BEFORE vs AFTER right-sizing - replace this table with your workload numbers after tuning runs"
     $table = @(
-        '  Deployment     | CPU Before | CPU After  | Mem Before | Mem After'
-        '  -----------------------------------------------------------------'
-        '  admin-frontend | 100m       | 10m  (90%-)| 128Mi      |  43Mi (66%-)'
-        '  api            | 100m       | 27m  (73%-)| 256Mi      | actual usage'
-        '  main-site      | 500m       | 14-18m     | 256Mi      |  57-77Mi (78%-)'
+        '  Deployment  | CPU Before | CPU After | Mem Before | Mem After'
+        '  ------------------------------------------------------------'
+        '  (example)   | 100m       | 27m       | 256Mi      | actual usage'
     ) -join [Environment]::NewLine
     Write-Host $table -ForegroundColor Cyan
 }
@@ -503,8 +527,11 @@ function Demo-SLOStatus {
     show "All ServiceObjective statuses"
     kube "get serviceobjectives -A -o wide"
 
-    show "Describe compliant SLO (main-site)"
-    kube "describe serviceobjective codepro-main-site-slo -n $NS"
+    $soEx = Get-FirstDemoServiceObjectiveName
+    if ($soEx) {
+        show "Describe first ServiceObjective in namespace"
+        kube "describe serviceobjective $soEx -n $NS"
+    }
 
     show "SLO violation events"
     kube "get events -n $NS --sort-by='.lastTimestamp' --field-selector reason=SLOViolation" | `
@@ -540,9 +567,9 @@ function Demo-RestAPI {
         Invoke-RestMethod http://localhost:8090/api/v1/decisions/summary -TimeoutSec 5 | ConvertTo-Json
     } catch { Write-Host "  API error: $_" -ForegroundColor Red }
 
-    show "Filter: only scale_up decisions for api"
+    show "Filter: only scale_up decisions for $DemoServiceNameForAPI"
     try {
-        $scaled = Invoke-RestMethod 'http://localhost:8090/api/v1/decisions?namespace=codepro&service=api' -TimeoutSec 5
+        $scaled = Invoke-RestMethod "http://localhost:8090/api/v1/decisions?namespace=$NS&service=$DemoServiceNameForAPI" -TimeoutSec 5
         $scaled | Where-Object { $_.action -eq 'scale_up' } | Select-Object -First 5 action, reason, timestamp | Format-Table -AutoSize
     } catch { Write-Host "  API error: $_" -ForegroundColor Red }
 }
@@ -561,10 +588,10 @@ function Demo-WhatIf {
         Start-Sleep -Seconds 4
     }
 
-    show "Simulate: what happens to SLO if we run 1 vs 3 vs 5 replicas of api?"
+    show "Simulate: what happens to SLO if we run 1 vs 3 vs 5 replicas?"
     $body = @{
-        namespace = "codepro"
-        service   = "api"
+        namespace = $NS
+        service   = $DemoServiceNameForAPI
         scenarios = @(
             @{ replicas = 1; cpu_request = 0.027; memory_request_gib = 0.4 }
             @{ replicas = 3; cpu_request = 0.027; memory_request_gib = 0.4 }
@@ -579,8 +606,8 @@ function Demo-WhatIf {
 
     show "SLO-Cost curve: find the optimal replica count"
     $curve = @{
-        namespace      = "codepro"
-        service        = "api"
+        namespace      = $NS
+        service        = $DemoServiceNameForAPI
         replica_range  = @{ min = 1; max = 8 }
         duration_hours = 24
     } | ConvertTo-Json -Depth 3
@@ -594,7 +621,7 @@ function Demo-WhatIf {
 # SECTION 9 — PROMETHEUS METRICS (what OptiPilot reads)
 # ============================================================
 function Demo-Prometheus {
-    pause-section "SECTION 9: Prometheus Metrics (OptiPilot`'s eyes)"
+    pause-section "SECTION 9: Prometheus Metrics (OptiPilot cluster metrics)"
 
     show "Starting Prometheus port-forward on localhost:9090"
     $pf = Start-Process -PassThru -WindowStyle Hidden powershell `
@@ -602,20 +629,20 @@ function Demo-Prometheus {
     Start-Sleep -Seconds 3
 
     show "Querying availability ratio - what drives SLO decisions"
-    $q = [System.Web.HttpUtility]::UrlEncode('kube_deployment_status_replicas_available{namespace="codepro"} / kube_deployment_spec_replicas{namespace="codepro"}')
+    $q = [System.Web.HttpUtility]::UrlEncode("kube_deployment_status_replicas_available{namespace=`"$NS`"} / kube_deployment_spec_replicas{namespace=`"$NS`"}")
     try {
         (Invoke-RestMethod "http://localhost:9090/api/v1/query?query=$q").data.result | `
             Select-Object @{n='deployment';e={$_.metric.deployment}}, @{n='availability';e={$_.value[1]}} | `
             Format-Table
     } catch {
         Write-Host "Open http://localhost:9090 in browser and run:" -ForegroundColor Yellow
-        Write-Host 'kube_deployment_status_replicas_available{namespace="codepro"} / kube_deployment_spec_replicas{namespace="codepro"}' -ForegroundColor Cyan
+        Write-Host "kube_deployment_status_replicas_available{namespace=`"$NS`"} / kube_deployment_spec_replicas{namespace=`"$NS`"}" -ForegroundColor Cyan
     }
 
     show "CPU usage per deployment (what drives vertical tuning)"
     Write-Host "Open http://localhost:9090 in browser and query:" -ForegroundColor Yellow
-    Write-Host '  avg by(pod)(rate(container_cpu_usage_seconds_total{namespace="codepro",container!=""}[5m]))' -ForegroundColor Cyan
-    Write-Host '  container_memory_working_set_bytes{namespace="codepro",container!=""}' -ForegroundColor Cyan
+    Write-Host "  avg by(pod)(rate(container_cpu_usage_seconds_total{namespace=`"$NS`",container!=`"`"}[5m]))" -ForegroundColor Cyan
+    Write-Host "  container_memory_working_set_bytes{namespace=`"$NS`",container!=`"`"}" -ForegroundColor Cyan
 
     Write-Host "`nPort-forward running to localhost:9090 - open browser now" -ForegroundColor Green
     Read-Host "Press ENTER when done with Prometheus demo"
@@ -687,8 +714,8 @@ $banner = @(
     '  Demo-CRDs                 section 2'
     '  Demo-HorizontalScaling    section 3  (SLO violation via scale-to-0)'
     '  Demo-TrafficAutoscale     section 3b (HTTP loadgen + auto-watch - easiest review)'
-    '  Start-CodeproLoadGenerators / Stop-CodeproLoadGenerators  (traffic only)'
-    '  Run-TrafficDemo           health check + Demo-TrafficAutoscale (nginx api)'
+    '  Start-DemoLoadGenerators / Stop-DemoLoadGenerators  (traffic only)'
+    '  Run-TrafficDemo           health check + Demo-TrafficAutoscale'
     '  Demo-VerticalScaling      section 4  (shows before/after)'
     '  Demo-LiveDecisions        section 5  (streaming logs)'
     '  Demo-SLOStatus            section 6'

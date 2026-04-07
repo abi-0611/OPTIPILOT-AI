@@ -1,15 +1,13 @@
-﻿# OptiPilot AI â€” CONTEXT.md
+# OptiPilot AI â€” CONTEXT.md
 
 ## Project
 SLO-native Kubernetes optimization platform (12-phase build).
 
 ## Current Setup Note
 - Fresh local startup uses `./hack/quickstart.sh --build-local`; Helm dependency aliases map `clusterAgent` and `mlService` to the subcharts while preserving the `cluster-agent` and `ml-service` resource names. The local demo exposes OptiPilot at `http://localhost:8090/api/v1/decisions` and Prometheus at `http://localhost:9090`; the root `/` path is 404 in the local build because the UI bundle is not embedded.
-- For CodePro, the policy selector matches labels on the ServiceObjective, so the SLO example must carry `app: codepro-api`.
-- The optimizer now computes right-sized CPU and memory targets from observed per-replica usage with a 30% headroom factor and a 20% change threshold before emitting tune actions.
-- CodePro now has ServiceObjectives and OptimizationPolicies for `api`, `main-site`, and `admin-frontend`; the frontend SLOs were simplified to deployment availability because the earlier custom PromQL objective returned no data in-cluster.
-- `Solver.buildAction` now ignores spot-only candidate differences for live actuation, which prevents unsupported no-op `tune` actions when CPU, memory, and replicas are unchanged.
-- Live validation on the kind cluster now shows all three CodePro deployments healthy; `codepro-admin-frontend-slo` and `codepro-main-site-slo` are compliant, while `codepro-api-slo` is concrete and non-compliant on latency, which correctly drives `scale_up` actions.
+- The `OptimizationPolicy.selector` matches labels on the `ServiceObjective`; keep labels consistent.
+- The optimizer computes right-sized CPU and memory targets from observed per-replica usage with a 30% headroom factor and a 20% change threshold before emitting tune actions.
+- `Solver.buildAction` ignores spot-only candidate differences for live actuation, which prevents unsupported no-op `tune` actions when CPU, memory, and replicas are unchanged.
 - Docker Desktop still reports `com.docker.service` as stopped, but the engine recovered enough to rebuild, load, and roll the updated `optipilot-manager:quickstart` image into kind during this session.
 
 ## Module

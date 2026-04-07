@@ -78,7 +78,7 @@ export default function SLOOverview() {
           <Loading />
         ) : items.length === 0 ? (
           <div style={{ color: "var(--color-text-muted)", fontSize: "13px", fontFamily: "var(--font-body)" }}>
-            No ServiceObjective resources found. Apply a ServiceObjective CR (for example for your CodePro workloads) to see live rows here.
+            No ServiceObjective resources found. Apply a ServiceObjective CR for your workload to see live rows here.
           </div>
         ) : metrics.length === 0 ? (
           <div style={{ color: "var(--color-text-muted)", fontSize: "13px" }}>

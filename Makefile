@@ -60,8 +60,11 @@ lint: golangci-lint ## Run golangci-lint linter.
 ##@ Build
 
 .PHONY: ui
-ui: ## Build the React dashboard (outputs to ui/dashboard/dist/).
+ui: ## Build the React dashboard; copies dist into cmd/manager/dashboard/dist for -tags ui embed.
 	cd ui/dashboard && npm ci && npm run build
+	rm -rf cmd/manager/dashboard/dist
+	mkdir -p cmd/manager/dashboard/dist
+	cp -r ui/dashboard/dist/. cmd/manager/dashboard/dist/
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary (without embedded UI).

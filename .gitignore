@@ -25,6 +25,8 @@ cover.out
 # Node / UI build
 ui/dashboard/node_modules/
 ui/dashboard/dist/
+# Copied from ui/dashboard/dist for go:embed (see Makefile ui)
+cmd/manager/dashboard/dist/
 ui/dashboard/.vite/
 
 # Python
